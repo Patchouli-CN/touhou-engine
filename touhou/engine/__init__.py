@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from .assembly import (
+    GameAssembly,
+    GameData,
+    ResourcePaths,
+    SaveSemantics,
+    ScriptSet,
+    check_assembly,
+)
 from .context import Command, CommandQueue, FrameContext
 from .core import Pipeline, Slot, System, World, tick_frame
 from .events import Event, EventHandler, EventStream
@@ -24,16 +32,22 @@ __all__ = [
     "EventHandler",
     "EventStream",
     "FrameContext",
+    "GameAssembly",
+    "GameData",
     "InputFrame",
     "MenuAction",
     "Pipeline",
+    "ResourcePaths",
     "Rng",
+    "SaveSemantics",
     "SceneSnapshot",
+    "ScriptSet",
     "Slot",
     "SnapshotBuilder",
     "SpriteDraw",
     "System",
     "TextDraw",
     "World",
+    "check_assembly",
     "tick_frame",
 ]
