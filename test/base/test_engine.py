@@ -179,3 +179,36 @@ def test_commands_apply_in_push_order() -> None:
         ctx.commands.push(_Log(name))
     tick_frame(world, Pipeline(), ctx)
     assert world.log == ["cmd:a", "cmd:b", "cmd:c"]
+
+
+class _Boom(Command):
+    """apply 必炸的命令。"""
+
+    def apply(self, world: World, ctx: FrameContext) -> None:
+        raise RuntimeError("boom")
+
+
+def test_bad_command_does_not_stop_queue() -> None:
+    """单条命令炸记日志跳过, 队列其余照常应用。"""
+    world = _World()
+    ctx = FrameContext(Rng(0))
+    ctx.commands.push(_Log("a"))
+    ctx.commands.push(_Boom())
+    ctx.commands.push(_Log("b"))
+    tick_frame(world, Pipeline(), ctx)
+    assert world.log == ["cmd:a", "cmd:b"]
+
+
+def test_bad_handler_does_not_stop_flush() -> None:
+    """单个订阅者炸记日志跳过, 其余订阅者照常收到事件。"""
+    got = []
+
+    def bad(event: Event) -> None:
+        raise RuntimeError("boom")
+
+    ctx = FrameContext(Rng(0))
+    ctx.events.subscribe(bad)
+    ctx.events.subscribe(got.append)
+    ctx.events.emit(_Hit(dmg=1))
+    ctx.events.flush()
+    assert len(got) == 1

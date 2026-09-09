@@ -6,6 +6,10 @@ from collections.abc import Callable
 
 import msgspec
 
+from ..utils.logger import LoggerManager
+
+log = LoggerManager.get_logger("ENGINE")
+
 
 class Event(msgspec.Struct, frozen=True, tag_field="type"):
     """事件基类, 作品事件子类挂 tag 组成 tagged union。"""
@@ -30,8 +34,11 @@ class EventStream:
         self._handlers.append(handler)
 
     def flush(self) -> None:
-        """帧末把本帧事件发给全部订阅者并清空。"""
+        """帧末把本帧事件发给全部订阅者并清空; 单个订阅者炸记日志继续。"""
         pending, self._pending = self._pending, []
         for event in pending:
             for handler in self._handlers:
-                handler(event)
+                try:
+                    handler(event)
+                except Exception:
+                    log.exception("事件订阅者处理失败, 跳过: {}", type(event).__name__)

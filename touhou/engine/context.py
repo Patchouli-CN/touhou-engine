@@ -6,10 +6,13 @@ import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from ..utils.logger import LoggerManager
 from .events import EventStream
 from .input import InputFrame
 from .rng import Rng
 from .snapshot import SnapshotBuilder
+
+log = LoggerManager.get_logger("ENGINE")
 
 if TYPE_CHECKING:
     from .core import World
@@ -36,11 +39,14 @@ class CommandQueue:
             self._pending.append(command)
 
     def apply(self, world: World, ctx: FrameContext) -> None:
-        """帧边界 drain 全部待应用命令并执行。"""
+        """帧边界 drain 并执行; 单条炸记日志继续, 不许拖垮模拟。"""
         with self._lock:
             pending, self._pending = self._pending, []
         for command in pending:
-            command.apply(world, ctx)
+            try:
+                command.apply(world, ctx)
+            except Exception:
+                log.exception("命令应用失败, 跳过: {}", type(command).__name__)
 
 
 class FrameContext:
