@@ -93,6 +93,15 @@ class Th08EnemyState(EclEnemyState):
     # playerShotHitAccumulator (EnemyManager.hpp:252): 射击命中符点累加器,
     # -1=未初始化(出生=阈值 EnemyManager.cpp:190, 首次结算时懒置位, 语义等价)
     shot_hit_accumulator: int = -1
+    # 受击闪光 (EnemyManagerUpdate.cpp:599-624): damageOccurred 帧置位,
+    # 下一帧 timer 衰减时清位(持续命中 → 隔帧闪烁); view 按它调制 vm
+    # flag17/color2。youkai_aligned 敌人不走闪光(常驻深蓝染色, 同段 else)
+    damage_flash: int = 0
+    damage_flash_timer: int = 0
+    # flags2 damageFeedbackLevel (EnemyManager.hpp:169): 每帧按当前 life
+    # 与生命阈值距离重算 (HandleLifeCallback 末段, EnemyManager.cpp:435/
+    # 497-574); 驱动受击 SE 分档与 ENEMY 警示灯闪烁档
+    damage_feedback_level: int = 0
 
 
 class Th08EclWorld(EclWorld):

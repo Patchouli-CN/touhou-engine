@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pygame
@@ -371,6 +372,19 @@ class GameView:
             if st.primary_vm_auto_rotate:
                 vm.vm.rotation[2] = st.angle
             vm.execute()
+            # 受击闪光/使魔妖对齐染色: 有效色切 color2 (flag17,
+            # EnemyManagerUpdate.cpp:599-633; Vm2d.draw 现成支持)
+            avm = cast(AnmVmTh08, vm.vm)
+            if getattr(st, "youkai_aligned", 0):
+                avm.flag17 = 1
+                avm.color2[0], avm.color2[1], avm.color2[2] = 0x20, 0x20, 0xC0
+                avm.color2[3] = avm.color[3] // 2
+            elif getattr(st, "damage_flash", 0):
+                avm.flag17 = 1
+                avm.color2[0], avm.color2[1], avm.color2[2] = 0xFF, 0x60, 0x80
+                avm.color2[3] = avm.color[3]
+            else:
+                avm.flag17 = 0
             # 位置 = 敌 pos + pos_offset(使魔链接位置, EclRun.cpp:54-56)
             # + vm offset
             po = getattr(st, "pos_offset", None)
@@ -616,7 +630,7 @@ class GameView:
             pygame.draw.circle(surf, (255, 60, 60), (int(p.pos.x), int(p.pos.y)), 5, 1)
             pygame.draw.circle(surf, (255, 255, 255), (int(p.pos.x), int(p.pos.y)), 2)
 
-    # ---- boss UI(血条/位置标记; 符卡名条二期) ----
+    # ---- boss UI(血条; ENEMY 位置标记在 hud_view 覆盖层, 符卡名条二期) ----
     def _render_boss_ui(self, surf: pygame.Surface, game) -> None:
         boss = game.boss
         if boss is None:
@@ -629,14 +643,6 @@ class GameView:
             w = int(320 * frac)
             pygame.draw.rect(surf, (32, 32, 96), (x0, y0, 320, 4))
             pygame.draw.rect(surf, (255, 255, 255), (x0, y0, w, 4))
-        # boss 位置标记(游戏区底缘红三角)
-        if boss.is_active or boss.life > 0:
-            mx = int(boss.pos.x)
-            pygame.draw.polygon(
-                surf,
-                (255, 50, 60),
-                [(mx - 5, GAME_H - 6), (mx + 5, GAME_H - 6), (mx, GAME_H - 1)],
-            )
 
     # ---- 一帧 ----
     def render(self, surf: pygame.Surface, game) -> None:

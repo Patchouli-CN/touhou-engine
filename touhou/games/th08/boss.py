@@ -39,6 +39,11 @@ class Th08Boss(BossBase):
     bonus_updates_disabled: int = 0  # op184 (SPELLCARD_FLAG_BONUS_UPDATES_DISABLED)
     was_captured: bool = False  # 上一张符卡是否捕获(Spellcard WasCaptured,
     # 变量 10099 在符卡结束后读它, EclOperandsInt.cpp:145-147)
+    # ENEMY 警示灯槽 (AsciiManager bossMarkers, EnemyManagerUpdate.cpp:
+    # 635-660 每帧写入): marker_x = 窗口坐标 x (noSprite/退场 = -999 隐藏),
+    # marker_state = 0 常态 / 1 受击暗红 / 2-4 红闪(8/4/2 帧间隔)
+    marker_x: float = -999.0
+    marker_state: int = 0
 
     def begin_spellcard(
         self,

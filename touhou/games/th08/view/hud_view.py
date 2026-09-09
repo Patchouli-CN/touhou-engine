@@ -30,6 +30,9 @@ interrupt 1 滑入后取值); 坐标为 640x480 窗口坐标。
   script 8 游标(8x12, 中心锚 (144,453)), 游标 x = gauge*112/2/10000
   + 槽x+64 (:1739-1740); 槽/百分比按区间变色 (:1749-1778);
   槽下方点道具分值(sprite 136+d 的 8x12 小数字, 去前导零, :1789-1806)。
+- ENEMY 警示灯(AsciiManager.cpp:474-549): ascii.anm sprite 157/158,
+  (boss.x+32, 472), 4 态(常态白近机压 alpha / 受击暗红 / 红闪 8/4/2 帧),
+  槽数据由 world 写入 boss.marker_x/marker_state。
 
 数字用 ascii.anm 贴字(原版同款), 不用 pygame 字体。
 """
@@ -70,6 +73,12 @@ _GAUGE_COLORS = {
 _TIME_READY_COLOR = (255, 240, 192)
 
 _FPS_POS = (190, 466)
+
+# ENEMY 警示灯 (AsciiManager bossMarkers, AsciiManager.cpp:474-549):
+# 窗口坐标 y=472, x 可见域 [56,392]; 4 态 = 常态白 / 受击暗红 /
+# 红闪 8/4/2 帧间隔 (state 2/3/4)
+_MARKER_Y = 472.0
+_MARKER_FLICKER = {2: 8, 3: 4, 4: 2}
 
 # 妖率计稳态布局(脚本 interrupt 1 滑入后静态求值; 见模块 docstring)
 _GAUGE_POS = (32.0, 449.0)  # script 5 槽左上
@@ -421,6 +430,60 @@ class HudView:
             skip_leading_zeros=True,
         )
 
+    # ---- ENEMY 警示灯(AsciiManager.cpp:474-549) ----
+    def _marker_img(
+        self, sb: AnmScriptBank, sprite: int, color: tuple[int, int, int], alpha: int
+    ) -> pygame.Surface | None:
+        """sprite 157/158 按 color1 调制的缓存副本。"""
+        key = ("marker", sprite, color, alpha)
+        out = self._tint.get(key)
+        if out is None:
+            base = sb.sprite_surf(sprite)
+            if base is None:
+                return None
+            out = base.copy()
+            out.fill((*color, alpha), special_flags=pygame.BLEND_RGBA_MULT)
+            self._tint[key] = out
+        return out
+
+    def _render_boss_marker(self, surf: pygame.Surface, game) -> None:
+        """屏幕下缘的 boss 位置 4 态闪烁标记 (AsciiManager.cpp:474-549);
+        槽数据由 world 每帧写入 boss.marker_x/marker_state。"""
+        boss = getattr(game, "boss", None)
+        if boss is None:
+            return
+        x = getattr(boss, "marker_x", -999.0)
+        if not 56.0 <= x <= 392.0:  # 可见域 (:476)
+            return
+        sb = self._sbank(_ASCII)
+        if sb is None:
+            return
+        state = getattr(boss, "marker_state", 0)
+        interval = _MARKER_FLICKER.get(state, 0)
+        red = interval > 0 and game.frame % interval == 0
+        if state == 1:  # 受击闪光中: 暗红 (:498-503)
+            sprite, color, alpha = 157, (255, 64, 64), 128
+        elif red:  # 红闪帧: sprite 158 白 (:504-545)
+            sprite, color, alpha = 158, (255, 255, 255), 255
+        else:  # 常态白, 靠近自机 x 时压 alpha (:478-496)
+            sprite, color = 157, (255, 255, 255)
+            space = abs(x - 32.0 - game.player.pos.x)
+            alpha = min(160, int(space + 96))
+        img = self._marker_img(sb, sprite, color, alpha)
+        if img is None:
+            return
+        st10 = self._script_steady(_ASCII, 10)  # bossMarkers 的脚本 (:251-254)
+        anchor, scale = (st10[2], st10[3]) if st10 is not None else (0, [1.0, 1.0])
+        if scale != [1.0, 1.0]:
+            img = pygame.transform.scale(
+                img,
+                (
+                    max(1, round(img.get_width() * scale[0])),
+                    max(1, round(img.get_height() * scale[1])),
+                ),
+            )
+        self._blit_at(surf, img, x, _MARKER_Y, anchor)
+
     def _draw_small(
         self,
         surf: pygame.Surface,
@@ -447,10 +510,11 @@ class HudView:
         self._render_stats(surf, game)
 
     def render_overlay(self, surf: pygame.Surface, game) -> None:
-        """画时刻表盘 + 妖率计(在游戏区 blit 之后调; 原版 Gui/AsciiManager
-        画在全窗口 framebuffer 高层, 盖在游戏场景上)。"""
+        """画时刻表盘 + 妖率计 + ENEMY 警示灯(在游戏区 blit 之后调; 原版
+        Gui/AsciiManager 画在全窗口 framebuffer 高层, 盖在游戏场景上)。"""
         self._render_clock(surf, game)
         self._render_gauge(surf, game)
+        self._render_boss_marker(surf, game)
 
     def render_fps(self, surf: pygame.Surface, fps: float) -> None:
         """帧率显示(ascii 贴字无 '.'/字母字形, 用小号字体; 位置同 th07 惯例)。"""

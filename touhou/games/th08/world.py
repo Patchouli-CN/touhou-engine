@@ -125,6 +125,8 @@ from ...logger import logger as log
 # 音效索引 (th08 SoundPlayer.hpp SoundIdx)
 SE_ENEMY_DEAD_A = 2  # SOUND_2(敌击坠两档交替, EnemyManager.cpp:298 段)
 SE_DAMAGE = 20  # SOUND_DAMAGE(敌受击)
+# 受击 SE 分档: damageFeedbackLevel>=2 用 37 (EnemyManagerUpdate.cpp:609-612)
+SE_DAMAGE_HEAVY = 37
 SE_ITEM = 21  # SOUND_ITEM(道具入袋, ItemManager.cpp:375)
 SE_1UP = 28  # SOUND_1UP(奖残)
 SE_GRAZE = 30  # SOUND_GRAZE(player._on_graze 内播)
@@ -172,6 +174,53 @@ def _power_level(power: float, levels: tuple[int, ...]) -> int:
     while n < len(levels) and int(power) >= levels[n]:
         n += 1
     return n
+
+
+def _feedback_level(st: Th08EnemyState, spellcard_active: bool) -> int:
+    """damageFeedbackLevel 重算 (HandleLifeCallback 末段,
+    EnemyManager.cpp:435/:497-574): 距下一生命阈值(无阈值则距击坠)越近
+    档位越高, 每帧重算不单调累积。"""
+    level = 0
+    phases = 0
+    for t in st.life_callback_threshold:
+        if t < 0:
+            continue
+        phases += 1
+        work = st.life - t
+        # 阈值未触发段: spell 120/200/300, 非 spell 500/1500/2200 (:500-519)
+        if spellcard_active:
+            s = 3 if work < 120 else 2 if work < 200 else 1 if work < 300 else 0
+        else:
+            s = 3 if work < 500 else 2 if work < 1500 else 1 if work < 2200 else 0
+        if s > level:
+            level = s
+    if phases == 0:
+        work = st.life
+        if st.is_boss:  # :530-554
+            if spellcard_active:
+                s = 3 if work < 120 else 2 if work < 300 else 1 if work < 400 else 0
+            else:
+                s = 3 if work < 600 else 2 if work < 1600 else 1 if work < 2400 else 0
+        elif spellcard_active:  # :555-561
+            s = 3 if work < 10 else 0
+        else:  # :562-568
+            s = 3 if work < 50 else 0
+        if s > level:
+            level = s
+    return level
+
+
+def _update_damage_flash(st: Th08EnemyState, damaged: bool) -> None:
+    """受击闪光状态位 (EnemyManagerUpdate.cpp:599-624): 受伤帧置位 +
+    timer=1, 次帧 timer 衰减时清位(持续命中 → 隔帧闪烁)。"""
+    if st.damage_flash_timer:
+        st.damage_flash_timer -= 1
+        st.damage_flash = 0
+    elif damaged:
+        st.damage_flash = 1
+        st.damage_flash_timer = 1
+    else:
+        st.damage_flash = 0
 
 
 @register_world_impl("th08")
@@ -914,6 +963,7 @@ class ImperishableNight:
             self.lasers.clear()
 
         # 自机弹打敌人
+        self._tick_damage_feedback()
         self.targeting.reset()
         results, kills = self.host.shoot_hits(
             self.player,
@@ -939,15 +989,24 @@ class ImperishableNight:
             if e.graze_size.x > 0.0:
                 self._shot_orb_accumulate(st, hit_log[li])
                 li += 1
-        for _, r in results:
+        for e, r in results:
             if r.score_code:
                 g.add_score(r.score_code)
             if r.damage:
-                self.sounds.play(SE_DAMAGE)
+                # SE 分档: damageFeedbackLevel<2 → 20, 否则 37
+                # (EnemyManagerUpdate.cpp:609-612)
+                lvl = getattr(getattr(e, "state", None), "damage_feedback_level", 0)
+                self.sounds.play(SE_DAMAGE if lvl < 2 else SE_DAMAGE_HEAVY)
         counter = self.frame
         for e in kills:
             self._kill_reward(e, counter)
             counter += 1
+        damaged_ids = {
+            id(st)
+            for e, r in results
+            if r.damage and (st := getattr(e, "state", None)) is not None
+        }
+        self._tick_damage_flash(damaged_ids)
 
         if not freeze:
             self._tick_boss()  # 冻结中符卡计时/衰减停 (Spellcard.cpp:1268)
@@ -1577,6 +1636,18 @@ class ImperishableNight:
         boss.life = max(bar_st.life, 0)
         boss.max_life = max(bar_st.max_life, 1)
         boss.invincibility_timer = st.invincibility_timer
+        # ENEMY 警示灯槽每帧写入 (EnemyManagerUpdate.cpp:635-660):
+        # x = worldPosition.x+32 (窗口坐标), noSprite → -999 隐藏
+        po = getattr(st, "pos_offset", None)
+        boss.marker_x = (
+            -999.0
+            if getattr(st, "no_sprite", 0)
+            else st.pos.x + (po.x if po is not None else 0.0) + 32.0
+        )
+        lvl = getattr(st, "damage_feedback_level", 0)
+        boss.marker_state = (
+            lvl + 1 if lvl else (1 if getattr(st, "damage_flash", 0) else 0)
+        )
         boss.is_survival_spellcard = bool(st.is_survival_spellcard)
         if st.is_survival_spellcard:
             # op155 直写 g_Spellcard.scoreLimit (EclRunHigh.inl:830)
@@ -1779,6 +1850,25 @@ class ImperishableNight:
             )
         self._cancel_region_items(ppos, 48.0, ItemType.TIME)
         p.time_orb_gauge_suppression = 0  # :327
+
+    def _tick_damage_feedback(self) -> None:
+        """每帧重算全场 damageFeedbackLevel (原作在 HandleLifeCallback 内,
+        EnemyManagerUpdate.cpp:268 每敌每帧调用; 此处置于伤害结算前,
+        与原作"取受伤前 life"同口径)。"""
+        spell = self._spellcard_active()
+        for e in self.host.alive():
+            st = getattr(e, "state", None)
+            if isinstance(st, Th08EnemyState):
+                st.damage_feedback_level = _feedback_level(st, spell)
+
+    def _tick_damage_flash(self, damaged: set[int]) -> None:
+        """受击闪光状态位推进 (EnemyManagerUpdate.cpp:599-633);
+        youkai_aligned 敌人不走闪光(view 侧常驻深蓝染色, 同段 else)。"""
+        for e in self.host.alive():
+            st = getattr(e, "state", None)
+            if not isinstance(st, Th08EnemyState) or st.youkai_aligned:
+                continue
+            _update_damage_flash(st, id(st) in damaged)
 
     def _shot_orb_accumulate(
         self, st: Th08EnemyState | None, hits: list[tuple[Vec2, int, int]]
