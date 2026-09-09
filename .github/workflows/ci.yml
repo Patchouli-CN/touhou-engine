@@ -1,0 +1,17 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  base:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      # 守护测试 + 引擎自身测试(用户定案: CI 只跑 test/base, 全量留本地)
+      - run: uv run --locked pytest test/base -q
+      # ruff 不在 dev 依赖组(依赖表未动), 用 uvx 临时拉取, 版本与本地对齐
+      - run: uvx ruff@0.15.4 check touhou test
+      - run: uvx ruff@0.15.4 format --check touhou test

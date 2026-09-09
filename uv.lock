@@ -554,17 +554,17 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "loguru" },
-    { name = "msgspec", specifier = ">=0.21.1" },
-    { name = "numpy", specifier = ">=2.0" },
+    { name = "msgspec" },
+    { name = "numpy" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "pyfiglet", specifier = ">=1.0.4" },
-    { name = "pygame", specifier = ">=2.5" },
+    { name = "pygame" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=2.3.1" },
-    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest", specifier = ">=9.1.1" },
 ]
 
 [[package]]

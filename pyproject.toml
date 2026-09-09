@@ -9,11 +9,11 @@ description = "通用东方弹幕游戏框架; TH07《东方妖妖梦》为首�
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "numpy>=2.0",
+    "numpy",
     "pillow>=10.0",
-    "pygame>=2.5",
+    "pygame",
     "loguru",
-    "msgspec>=0.21.1",
+    "msgspec",
     "pyfiglet>=1.0.4",
 ]
 
@@ -26,11 +26,28 @@ packages = ["touhou"]
 [dependency-groups]
 dev = [
     "mypy>=2.3.1",
-    "pytest>=8.0",
+    "pytest>=9.1.1",
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["test"]
+
+[tool.ruff]
+target-version = "py310"
+# old/ 是 gitignored 的旧仓参考资料, 不扫
+extend-exclude = ["old"]
+
+[tool.ruff.lint]
+# E402 随 E 启用(导入必须顶部); UP 配 py310 自动抓 Optional(UP045)等旧式写法
+select = ["E", "F", "I", "UP", "D"]
+# docstring 只查风格不查有无: 不强制每个公开成员都写(D1xx 全放),
+# 写了就必须是合格 Google 风格(D2xx-D4xx 按 convention 收)。
+# D415 豁免: 中文 docstring 以"。"收尾, ruff 只认 ASCII 句读。
+# E501 豁免: CJK 按 2 倍宽度计数, 88 列对中文注释/文档太紧, 行长交给 formatter。
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107", "D415", "E501"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.mypy]
 python_version = "3.12"
@@ -52,5 +69,5 @@ ignore_errors = true
 
 # 测试目录豁免: pytest 驱动, 构造夹具时有意打破类型(鸭子类型替身等)。
 [[tool.mypy.overrides]]
-module = "tests.*"
+module = "test.*"
 ignore_errors = true

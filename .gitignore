@@ -13,6 +13,7 @@
 # I don't wants
 scratch_dbg/
 /Reference/
+/old/
 
 # Python
 __pycache__/
