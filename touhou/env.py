@@ -14,8 +14,13 @@ from .registry import registered_games, registered_renderers, GAME_TITLES
 from .schema.archive import open_archive
 
 
-def detect_environment(data_path: str | Path | None = None) -> dict[str, str]:
-    """探测运行环境。失败项记"未找到/未知", 不抛异常。"""
+def detect_environment(
+    data_path: str | Path | None = None, *, game: str | None = None
+) -> dict[str, str]:
+    """探测运行环境。失败项记"未找到/未知", 不抛异常。
+
+    ``game`` = 本次请求启动的作品名: 资源包路径按它查表(防"启动 th08
+    却打印 th07 资源包"的误导); 不传回落框架默认作品。"""
     info: dict[str, str] = {
         "python": sys.version.split()[0],
         "platform": f"{platform.system()} {platform.release()}",
@@ -29,7 +34,7 @@ def detect_environment(data_path: str | Path | None = None) -> dict[str, str]:
     except Exception:  # noqa: BLE001 - 探测不炸是硬性要求
         pass
 
-    res = resolve_data_path(data_path)
+    res = resolve_data_path(data_path, game=game)
     info["res_dat"] = str(res)
     info["res_format"] = "未知"
     if res.exists():
@@ -63,7 +68,7 @@ def log_environment(
     标题, 未注册则明确标注——避免"请求 th08 却打印 th07 标题"的误导。
     不传时回落旧行为(显示首个已注册作品的标题)。
     """
-    info = detect_environment(data_path)
+    info = detect_environment(data_path, game=game)
     if game is not None:
         if game in registered_games():
             log.info("启动作品: {} — {}", game, GAME_TITLES.get(game, game))
