@@ -3,7 +3,10 @@
 th08 的 msg opcode 扩到 0-22(Gui.hpp:67-74); 扩展字段与 op15-22 分支
 自 schema/msg.py 下沉(纯搬运, C 行号注释随行), 经基类的
 ``_handle_extra_op`` 扩展点接入:
-- op15/17/18 立绘/文本框配置: 纯视觉, 忽略(落普通前进);
+- op15/17 立绘配置(Gui.cpp:286-328/:330-383): 说话方切换(旧方跨对→6
+  原地压暗/同对→4, 其余→4, 新方→3) + 各槽 SetSprite(≥0 才设),
+  落 ``portrait_sprites``/``current_portrait_index``;
+- op18 SET_TEXT_BOX_VISIBLE: 落 ``text_box_visible``;
 - op16 SHOW_SPEAKER_TEXT(Gui.cpp:486-512)/op19/op20: 纯文本落对话行
   (GuiMessagePlainTextArgs, Gui.hpp:121-124);
 - op21 SHOW_SELECTION(Gui.cpp:540-573): 二选一, wait 式停留;
@@ -11,10 +14,16 @@ th08 的 msg opcode 扩到 0-22(Gui.hpp:67-74); 扩展字段与 op15-22 分支
   selectedOption 并 MsgRead(selectedOption+1);
 - PAUSE 的 Z 提前结束最短停留 waitThreshold=6(Gui.cpp:241) 经构造参数
   ``pause_min_frames=6`` 传入。
+
+op1 SET_PORTRAIT_ANM_SCRIPT 的 anmScriptIdx 是槽位 anm 的扁平脚本号
+(Gui.cpp:385-417 SetAndExecuteScriptIdx), 由基类落 ``portraits[i].face``;
+view 侧(games/th08/view/dialog_view.py)按脚本号起 VM。op2 全数据仅
+msg1b 一次且与同帧 op1 冗余, 未单独区分(按脚本号解读, 见 gaps 文档 #5)。
 """
 
 from __future__ import annotations
 
+import struct
 from typing import Optional
 
 from ...schema.msg import MsgFile, MsgInstr, MsgOpcode, MsgVm
@@ -37,6 +46,9 @@ class MsgVmTh08(MsgVm):
         self.dialogue_line_index = 0  # op16 说话人文本的落行游标
         self.selected_option = 0  # op21 二选一的当前选项(0/1)
         self.final_stage_route: int | None = None  # op22 写出(Gui.cpp:574-578)
+        self.portrait_sprites = [-1] * num_portraits  # op15/17 各槽 SetSprite 值
+        self.current_portrait_index = -1  # 说话方槽位(C 初值 0xff, Gui.cpp:240)
+        self.text_box_visible = True  # op18(Gui.cpp:225 MsgRead 置 1)
 
     def read(self, msg_idx: int) -> None:
         """MsgRead: 基类清零后补清 th08 扩展字段(越界无操作同基类)。"""
@@ -44,11 +56,44 @@ class MsgVmTh08(MsgVm):
             return
         super().read(msg_idx)
         self.dialogue_line_index = 0
+        self.portrait_sprites = [-1] * self.num_portraits
+        self.current_portrait_index = -1
+        self.text_box_visible = True
+
+    def _switch_speaker(self, new_idx: int) -> None:
+        """op15/17 的说话方切换(Gui.cpp:288-308/:332-352): 旧说话方跨对
+        (0-1 自机/2-3 敌方)→ 6(原地压暗), 同对 → 4, 其余槽 → 4;
+        新说话方恒 → 3(亮)。"""
+        cur = self.current_portrait_index
+        if cur != new_idx:
+            for j, p in enumerate(self.portraits):
+                if j == cur:
+                    p.pending_interrupt = 6 if (cur // 2) != (new_idx // 2) else 4
+                else:
+                    p.pending_interrupt = 4
+        self.portraits[new_idx].pending_interrupt = 3
+        self.current_portrait_index = new_idx
 
     def _handle_extra_op(self, cur: MsgInstr, advance_pressed: bool) -> Optional[bool]:
-        """op15-22(Gui.cpp RunMsg; 15/17/18 纯视觉配置, 忽略)。"""
+        """op15-22(Gui.cpp RunMsg)。"""
         op = cur.opcode
-        if op == MsgOpcode.SHOW_SPEAKER_TEXT:
+        if op == MsgOpcode.CONFIGURE_ALL_PORTRAITS:
+            # Gui.cpp:286-328: i32 portraitIndex + i32 spriteIndices[4]
+            vals = struct.unpack_from("<5i", cur.args, 0)
+            self._switch_speaker(vals[0])
+            for i, s in enumerate(vals[1:]):
+                if s >= 0:
+                    self.portrait_sprites[i] = s
+        elif op == MsgOpcode.CONFIGURE_PORTRAIT:
+            # Gui.cpp:330-383: i32 portraitIndex + i32 spriteIndex
+            new_idx, sprite = struct.unpack_from("<2i", cur.args, 0)
+            self._switch_speaker(new_idx)
+            if sprite >= 0:
+                self.portrait_sprites[new_idx] = sprite
+        elif op == MsgOpcode.SET_TEXT_BOX_VISIBLE:
+            # GuiMessageByteToggleArgs: 直接读 args 首字节
+            self.text_box_visible = bool(cur.args and cur.args[0])
+        elif op == MsgOpcode.SHOW_SPEAKER_TEXT:
             # Gui.cpp:486-512: 落 dialogueLines[dialogueLineIndex] 并自增
             line_state = self.dialogue_lines[
                 min(self.dialogue_line_index, len(self.dialogue_lines) - 1)

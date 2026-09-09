@@ -11,7 +11,8 @@ games/th08/view/impl.py 直接实例化, 第三后端出现时再抽象。)
   option_view.OptionView/KeyConfigView: title01.anm 行标签/残机档/音量数字
   vm + 键名绘字; Music Room 是 music_view.MusicRoomView: music.jpg 背景 +
   music00.anm 主装饰 vm + 曲名/简介直接绘字), 加载失败回退文字菜单;
-- 结算/暂停/续关覆盖层同样是文字版; 对话立绘/结局/弹字二期;
+- 结算/暂停/续关覆盖层同样是文字版; 对话已接立绘(dialog_view.DialogueViewTh08:
+  face anm 真实脚本驱动 4 槽), 结局/弹字二期;
 - 菜单 SE 自带小三件套(se_ok00/se_cancel00/se_select00, th08-ref
   SoundPlayer.hpp SoundIdx: SOUND_SELECT=10/BACK=11/MOVE_MENU=12),
   从 th08.dat 懒加载(edz 内层解密, games/th08/crypt.py), 静音容错。
@@ -36,6 +37,7 @@ from ....engine.health import HealthCenter
 from ....engine.view.shake_view import ScreenShake
 from ...th07.view.screens import MenuAction, Screen
 from ..crypt import try_decrypt_from_table
+from .dialog_view import DialogueViewTh08
 from .hud_view import HudView
 from .music_flow import MusicRoomFlowTh08
 from .music_view import MusicRoomView
@@ -205,6 +207,9 @@ class PygameTh08Renderer:
         # Practice/Spell Practice 贴图视图(懒加载; 无数据/损坏回退文字菜单)
         self._practice_view: PracticeMenuView | None = None
         self._practice_view_broken = False
+        # 对话视图(begin_game 按 (机体, 关) 建; 失败回退纯文字覆盖层)
+        self._dialog_view: DialogueViewTh08 | None = None
+        self._dialog_key: tuple[int, int] | None = None
         # 输入映射(set_keymap 重建)
         self._action_codes: dict[str, list[int]] = {}
         self._menu_keys: dict[int, MenuAction] = {}
@@ -747,6 +752,15 @@ class PygameTh08Renderer:
         except Exception:
             log.exception("战斗贴图渲染器初始化失败(降级为简笔渲染)")
             self._game_view = None
+        # 对话渲染器(立绘 4 槽: 自机双立绘按机体, 敌方按面)
+        try:
+            self._dialog_view = DialogueViewTh08(
+                self._data_path, character=character, stage=stage
+            )
+            self._dialog_key = (character, stage)
+        except Exception:
+            log.exception("对话渲染器初始化失败(降级为纯文字对话)")
+            self._dialog_view = None
         try:
             self._hud_view = HudView(self._data_path)
         except Exception:
@@ -782,10 +796,27 @@ class PygameTh08Renderer:
         sr = getattr(game, "stage_results", None)
         if sr is not None:
             self._render_stage_results(surf, sr)
-        # 对话覆盖层(一期: 纯文字; 立绘二期)
+        # 对话覆盖层(立绘 4 槽 + 对话框 + 文本; 换关/换机体按新 face 集重建,
+        # 视图无数据时回退纯文字)
         vm = getattr(game, "msg_vm", None)
         if vm is not None and getattr(vm, "active", False):
-            self._render_dialog(surf, vm)
+            key = (getattr(game, "character", 0), getattr(game, "stage_no", 1))
+            if self._dialog_view is not None and key != self._dialog_key:
+                try:
+                    self._dialog_view = DialogueViewTh08(
+                        self._data_path, character=key[0], stage=key[1]
+                    )
+                    self._dialog_key = key
+                except Exception:
+                    self._dialog_view = None  # 渲染失败不拖垮游戏
+            if self._dialog_view is not None:
+                try:
+                    self._dialog_view.render(surf, vm, frame=getattr(game, "frame", -1))
+                except Exception:
+                    log.exception("对话渲染异常(本帧降级)")
+                    self._render_dialog(surf, vm)
+            else:
+                self._render_dialog(surf, vm)
         # 震屏: 消费引擎帧末快照 frame_shakes, 整帧位移只动游戏区 ——
         # HUD 不晃。快照按 (game, frame) 去重: 暂停/续关菜单冻结 tick 时
         # 帧号不变, 不重复注册同一帧的事件。
@@ -873,7 +904,8 @@ class PygameTh08Renderer:
             pass  # 渲染失败不拖垮游戏循环
 
     def _render_dialog(self, surf, vm) -> None:
-        """对话覆盖层(一期纯文字: 对话框 + 打字机文本; 立绘/名字二期)。"""
+        """纯文字对话回退(对话视图缺失/异常时用; 正常路径是
+        DialogueViewTh08.render: 立绘 + 对话框 + 文本)。"""
         try:
             lines = [
                 ln.shown_text

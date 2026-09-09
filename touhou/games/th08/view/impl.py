@@ -32,8 +32,9 @@ practice_view.PracticeMenuView(select00.png 背景 + 直接绘字);
 ex19 发布卡号 + 残机 8/火力按卡号 + catk 记 practice 组),
 练习结算不进 ResultScreen(原作 PRACTICE/SPELL_PRACTICE 态只更新 pscr,
 §12.3), 存档落盘后回对应面选(practiceState 净效果)。
-一期遗留范围: 对话立绘、符卡宣言、结局画面(world 出 ending 时直接
+一期遗留范围: 符卡宣言、结局画面(world 出 ending 时直接
 finish_ending 跳总结算)、录像录制(D 期)、入榜名字输入(结算直接存档回标题)。
+对话立绘已实装(dialog_view.DialogueViewTh08 + msg_vm 的 op15/17/18 状态)。
 
 渲染/输入采集委托 Renderer 后端(协议见 engine/render/__init__.py);
 默认后端是本包 pygame_backend.PygameTh08Renderer(自持, 不进全局

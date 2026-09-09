@@ -6,8 +6,8 @@
 title_flow.CharacterFlowTh08 + select_view); Music Room 已原作化(C 期第 2 片,
 music_flow + music_view); Result 浏览面已原作化(C 期第 3 片, result_flow +
 result_view); Replay 菜单(录像浏览+JSON 录像回放)已实装(C 期第 4 片,
-replay_flow + replay_view); 对话立绘/符卡宣言/结局/Practice/录像录制 留二期
-(见 impl.py 模块 docstring)。
+replay_flow + replay_view); 游戏中对话立绘已接(dialog_view: face anm 脚本
+驱动 4 槽); 符卡宣言/结局/录像录制 留二期(见 impl.py 模块 docstring)。
 
 - ``anm_vm``: AnmVmTh08(th08 指令集差集, 对照 th08-ref AnmManager.cpp
   ExecuteScript; 基类是 engine/view/anm_vm.py 的 AnmVm)
@@ -20,6 +20,8 @@ replay_flow + replay_view); 对话立绘/符卡宣言/结局/Practice/录像录�
 - ``pygame_backend``: PygameTh08Renderer —— 自持, 不进 register_renderer
   ("pygame" 全局名被 th07 占用)
 - ``sprite_view`` / ``hud_view``: 战斗画面(GameView)与右栏 HUD
+- ``dialog_view``: 游戏中对话(DialogueViewTh08: 4 槽立绘 face anm 脚本
+  驱动 + 对话框/文本, op15/17/18 状态来自 games/th08/msg_vm.py)
 
 依赖方向: 本包 → games/th08(逻辑层)/games/th07 view 的纯逻辑 screens →
 engine(view/render/config/…), 反向禁止。
