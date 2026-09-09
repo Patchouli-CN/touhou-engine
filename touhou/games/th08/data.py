@@ -15,6 +15,8 @@
   下标 = C currentStage(0=1面 … 3=4A 4=4B 5=5面 6=6A 7=6B 8=EX)
 - MSG_FILES:         对话文件名表 g_GuiMessagePaths(Gui.cpp:61-69),
   下标 = (C currentStage, shotType)
+- BULLET_TYPE_SPECS: 弹型模板表 21 槽(g_BulletSpriteScripts + AddedCallback
+  判定树 + etama.anm 实测), 对局经 ``BulletWorld(type_specs=...)`` 注入引擎
 
 空字段与近似处理说明:
 - spellcard_scores 留空: th08-ref 无符卡基础分值表(符卡分按剩余时间等动态算);
@@ -26,7 +28,9 @@
 
 from __future__ import annotations
 
+from ...engine.bullets import BulletTypeSpec
 from ...registry import GameData, register_game_data
+from ...utils import Vec2
 
 # ---- 名单(下标语义: shotType / difficulty) ----
 # 机体名单(ScoreDat.hpp:54-69): 0=灵梦&紫 1=魔理沙&爱丽丝 2=咲夜&蕾米莉亚
@@ -412,6 +416,45 @@ MSG_FILES = (
         "msg8d.dat",
     ),
 )
+
+# ---- 弹型模板表 21 槽 (BulletManager.cpp) ----
+# anm_file_idx = g_BulletSpriteScripts[i].scripts[0] (BulletManager.cpp:299-322,
+# etama.anm 扁平脚本号); 宽高 = 活动脚本代表帧 sprite 的 fw/fh (本机 th08.dat
+# etama.anm 实测, 同 th07 表提取口径)。
+# graze_size/collision_type = AddedCallback 判定树 (BulletManager.cpp:1624-1701)
+# 的 collisionSize/drawBucketIndex: collisionSize 是碰撞盒全尺寸(中心±x/2),
+# 命中/擦弹同盒 —— 命中 CheckBulletCollision (BulletManager.cpp:927-928),
+# 擦弹 CheckGrazeCollision 外扩 20px (:902-903, Player.cpp:347-372)。
+# 判定树 quirk: ≤16px 档 case 5 无 break 落到 case 106, 弹型 5 实为 (4,4,bucket4)。
+# spawn_t = 出生特效脚本 (scripts[1..3]) 时长 T = 终止指令 op1(Delete) 的 time
+# (本机 th08.dat etama.anm 实测: 脚本 18/19/20→10/15/30, 21/22/23→10/15/30,
+# 24→30, 27→24); 转变帧 = T+1 (与 th07 同口径, engine/bullets.py spawn 段)。
+BULLET_TYPE_SPECS: tuple[BulletTypeSpec, ...] = (
+    BulletTypeSpec(0, 8.0, 8.0, Vec2(4, 4), 5, spawn_t=(10, 15, 30)),  # 0: 小弹
+    BulletTypeSpec(1, 16.0, 16.0, Vec2(6, 6), 3, spawn_t=(10, 15, 30)),  # 1: 中弹
+    BulletTypeSpec(2, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 15, 30)),  # 2: 米弹
+    BulletTypeSpec(3, 16.0, 16.0, Vec2(6, 6), 3, spawn_t=(10, 15, 30)),  # 3
+    BulletTypeSpec(4, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 15, 30)),  # 4
+    BulletTypeSpec(
+        5, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 15, 30)
+    ),  # 5 (case5 无 break 落 106)
+    BulletTypeSpec(6, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 15, 30)),  # 6
+    BulletTypeSpec(7, 32.0, 32.0, Vec2(10, 10), 1, spawn_t=(30, 30, 30)),  # 7: 大弹
+    BulletTypeSpec(8, 32.0, 32.0, Vec2(5, 5), 2, spawn_t=(30, 30, 30)),  # 8: 刀弹
+    BulletTypeSpec(9, 32.0, 32.0, Vec2(8, 8), 1, spawn_t=(30, 30, 30)),  # 9: 札弹
+    BulletTypeSpec(25, 64.0, 64.0, Vec2(24, 24), 0, spawn_t=(24, 24, 24)),  # 10: 大玉
+    BulletTypeSpec(106, 16.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 15, 30)),  # 11
+    BulletTypeSpec(107, 16.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 15, 30)),  # 12
+    BulletTypeSpec(108, 16.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 15, 30)),  # 13
+    BulletTypeSpec(109, 32.0, 31.0, Vec2(8, 8), 1, spawn_t=(30, 30, 30)),  # 14
+    BulletTypeSpec(110, 32.0, 31.0, Vec2(8, 8), 1, spawn_t=(30, 30, 30)),  # 15
+    BulletTypeSpec(111, 16.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 15, 30)),  # 16
+    BulletTypeSpec(112, 16.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 15, 30)),  # 17
+    BulletTypeSpec(113, 32.0, 32.0, Vec2(5, 5), 2, spawn_t=(30, 30, 30)),  # 18
+    BulletTypeSpec(114, 32.0, 32.0, Vec2(5, 5), 2, spawn_t=(30, 30, 30)),  # 19
+    BulletTypeSpec(115, 32.0, 32.0, Vec2(5, 5), 2, spawn_t=(30, 30, 30)),  # 20
+)
+
 
 # ---- 注册(导入本模块即登记 th08 数值表; touhou/__init__ 保证导入) ----
 TH08_DATA = register_game_data(

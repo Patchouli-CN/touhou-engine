@@ -20,7 +20,7 @@ sprite id 映射结论(开发期 dump th07.dat + 目检, 工具 scratch_dbg/anm_
 - 敌人: ECL SET_ANM 存进 EclEnemyState.anm_idx 的是 stgNenm.anm 的
   **局部** script id(实测 stage 1: 0/5/10=妖精, 128+=boss, 见
   sheet_stg1enm_anm_e0.png); script 首帧 sprite 即代表帧。
-- 敌弹: engine/bullets.py 的 bullet_active_sprite_idx() 已给出全局
+- 敌弹: games/th07/data.py 的 bullet_active_sprite_idx() 已给出全局
   sprite idx(0x200 基址 + 模板基址 + spriteOffset); 每弹型 16 色连续,
   spriteOffset 直接是颜色变体(etama.anm 内是同色不同贴图, 非调色脚本)。
 - 道具: ItemManager.cpp:91 SetAnmIdxAndExecuteScript(itemType + 708)
@@ -59,7 +59,8 @@ import numpy as np
 import pygame
 
 from ....logger import logger as log
-from ....engine.bullets import SCREEN, bullet_active_sprite_idx
+from ....engine.bullets import SCREEN
+from ..data import bullet_active_sprite_idx
 from ....engine.view.anm_fx import AnmScriptBank, EffectLayer, TransformCache, Vm2d
 from ....engine.view.bg3d_view import StageScene
 from ....engine.view.sprite_bank import SpriteBank

@@ -35,14 +35,7 @@ from ...types import (
     PosLike,
     SetBossHook,
 )
-from ...engine.bullets import (
-    Aim,
-    BulletWorld,
-    Burst,
-    bullet_active_sprite_idx,
-    bullet_sprite_height,
-    bullet_type_size,
-)
+from ...engine.bullets import Aim, BulletWorld, Burst
 from ...engine.bullet_commands import BulletCommand, CmdFlag
 from ...engine.ecl import (
     BulletCommandData,
@@ -56,6 +49,7 @@ from ...engine.ecl import (
 )
 from ...engine.ecl_base import EclMachineBase
 from ...engine.enemies import EclEnemy, EnemyHost
+from .data import bullet_active_sprite_idx, bullet_sprite_height, bullet_type_size
 from .items import POPUP_WHITE, POPUP_YELLOW, STATE_ATTRACT, ItemType, ItemWorld
 from ...engine.lasers import Laser, LaserState, LaserWorld
 from ...utils import Vec2, add_normalize_angle, angle_to

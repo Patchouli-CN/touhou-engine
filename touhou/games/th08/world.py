@@ -38,7 +38,7 @@ import math
 from pathlib import Path
 from typing import cast
 
-from ...engine.bullets import BulletWorld
+from ...engine.bullets import Bullet, BulletWorld
 from ...engine.ecl import EclEnemyState
 from ...engine.ending import EndingData, parse_end, parse_end_music, parse_end_ops
 from ...engine.enemies import EclEnemy, EnemyHost, Targeting, settle_damage
@@ -64,6 +64,7 @@ from .bomb import (
 from .boss import TIMEOUT_SPELL_SCORE_LIMIT, Th08Boss
 from .crypt import try_decrypt_from_table
 from .data import (
+    BULLET_TYPE_SPECS,
     CHARACTER_SHT,
     LAST_WORD_ECL_FILES,
     MSG_FILES,
@@ -153,6 +154,18 @@ _STAGE4_BRANCH = {
 }
 
 
+def _bullet_box(b: Bullet, world: BulletWorld) -> tuple[float, float]:
+    """弹的碰撞盒全尺寸: 弹型表 collisionSize (BulletManager.cpp:1624-1701;
+    命中/擦弹同盒, 见 data.py 弹型表头注释), 未知弹型回落世界均匀半径 ×2。"""
+    specs = world.type_specs
+    if 0 <= b.sprite < len(specs):
+        gs = specs[b.sprite].graze_size
+        if gs.x > 0:
+            return (gs.x, gs.y)
+    r = world.bullet_radius * 2.0
+    return (r, r)
+
+
 def _power_level(power: float, levels: tuple[int, ...]) -> int:
     """火力档位 (g_PowerUpThresholds 的 while 循环)。"""
     n = 0
@@ -214,7 +227,7 @@ class ImperishableNight:
             shot_data_focus=self.shot_data_focus,
             shot_type=character,
         )
-        self.bullets = BulletWorld()
+        self.bullets = BulletWorld(type_specs=BULLET_TYPE_SPECS)
         self.bullets.player_pos = self.player.pos
         self.lasers = LaserWorld()
         self.host = EnemyHost()
@@ -945,7 +958,6 @@ class ImperishableNight:
         # ---- 敌弹推进 + 擦弹/命中判定 ----
         self.bullets.player_pos = self.player.pos
         self.bullets.step()
-        bsize = (self.bullets.bullet_radius * 2.0, self.bullets.bullet_radius * 2.0)
         h = self.ecl_host
         for b in self.bullets.alive():
             if b.spawn_state:
@@ -953,6 +965,8 @@ class ImperishableNight:
             # 铃仙冻结相位: 无判定 (collisionDisabled, EclExIns.cpp:622/687)
             if h is not None and h.bullet_collision_disabled(b):
                 continue
+            # 弹型各自的 collisionSize (BulletManager.cpp:927-928/:902-903)
+            bsize = _bullet_box(b, self.bullets)
             self.player.graze_bullet(b, bsize)
             if self.bomb.is_in_use:
                 continue
@@ -1243,7 +1257,7 @@ class ImperishableNight:
         g.current_time_orbs = 0  # GameManager.cpp:878
         g.score = 0
         # 各 Manager 重建(清场)
-        self.bullets = BulletWorld()
+        self.bullets = BulletWorld(type_specs=BULLET_TYPE_SPECS)
         self.lasers = LaserWorld()
         self.host = EnemyHost()
         self.boss = None
@@ -1496,11 +1510,12 @@ class ImperishableNight:
         """炸弹盒生效: 清弹盒→弹转弹消星(CheckBulletCancelCollision 等价),
         伤害盒→敌人/Boss(分路径结算, 偏差注记同 th07 world._apply_bomb_boxes)。"""
         g = self.globals
-        bsize = Vec2(self.bullets.bullet_radius * 2.0, self.bullets.bullet_radius * 2.0)
         for b in self.bullets.alive():
             if b.spawn_state:
                 continue
-            if self.bomb.check_bomb_graze(b.pos, bsize):
+            # CheckBulletCancelCollision 同样吃弹型 collisionSize (BulletManager.cpp:502-504)
+            bx, by = _bullet_box(b, self.bullets)
+            if self.bomb.check_bomb_graze(b.pos, Vec2(bx, by)):
                 self.items.spawn(
                     b.pos,
                     ItemType(self.bomb.item_type),

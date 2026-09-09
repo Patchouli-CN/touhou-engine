@@ -17,7 +17,7 @@ from PIL import Image
 
 from ...schema.archive import open_archive
 from ...registry import GameData, GameHooks, register_world_impl
-from .data import CHARACTER_SHT, TH07_DATA
+from .data import BULLET_TYPE_SPECS, CHARACTER_SHT, TH07_DATA
 from ...engine.bullets import BulletWorld, SCREEN
 from ...engine.ecl import EclFile, EclTimelineRunner, EclWorld
 from ...engine.events import EventBus
@@ -174,7 +174,7 @@ class PerfectCherryBloom:
             rotating_options=(character == 5),
         )  # 咲夜B 旋转子机
         self.player.is_marisa_b = character == CHAR_MARISA_B  # 炸弹中不发射
-        self.bullets = BulletWorld()
+        self.bullets = BulletWorld(type_specs=BULLET_TYPE_SPECS)
         self.bullets.player_pos = self.player.pos
         self.lasers = LaserWorld()
         self.host = EnemyHost()
@@ -1197,7 +1197,7 @@ class PerfectCherryBloom:
         g.graze_in_stage = 0
         g.score = 0
         # 各 Manager 重建(清场)
-        self.bullets = BulletWorld()
+        self.bullets = BulletWorld(type_specs=BULLET_TYPE_SPECS)
         self.lasers = LaserWorld()
         self.host = EnemyHost()
         self.boss = None

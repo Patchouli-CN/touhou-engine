@@ -67,8 +67,9 @@ from .ir import IrCond, IrIf, IrLoop, IrNode, IrOp, IrOperand, IrSeq
 __all__ = ["YoukaiDanmakuTranslator"]
 
 # ---- 默认映射表(= th07 弹型; 其他作品经构造参数覆盖) ----
-# 弹型下标 = engine/bullets.py BULLET_TYPE_SPECS 槽位(C g_BulletTypeInfos);
-# 中文名注释对照 BulletManager.cpp AddedCallback 特判与 etama.anm 实测。
+# 弹型下标 = 作品弹型表槽位(C g_BulletTypeInfos; th07 表见 games/th07/data.py
+# BULLET_TYPE_SPECS); 中文名注释对照 BulletManager.cpp AddedCallback 特判与
+# etama.anm 实测。
 DEFAULT_BULLET_TYPES: dict[int, str] = {
     0: "ball",  # 小弹
     1: "scale",  # 中弹(鳞弹)

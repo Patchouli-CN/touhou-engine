@@ -54,45 +54,21 @@ def rank_lerp_int(low: int, high: int, scale: int) -> int:
 
 # ---- 弹型模板 (BulletManager.cpp AddedCallback + g_BulletTypeInfos) ----
 class BulletTypeSpec(msgspec.Struct, frozen=True):
-    """一种敌弹弹型: 判定/擦弹尺寸与碰撞分层。
+    """一种敌弹弹型: 判定/擦弹尺寸、碰撞分层与出生态帧数(作品侧注入, 见
+    BulletWorld.type_specs; 数值表住 games/<作品>/data.py)。
 
-    width/height 取自 etama.anm 精灵尺寸(从 th07.dat 的 data/etama.anm 提取,
-    见表头注释); graze_size/collision_type 按 AddedCallback 的分档判定树得出。
+    width/height 取自 etama.anm 精灵尺寸; graze_size/collision_type 按
+    AddedCallback 的分档判定树得出; spawn_t = 出生特效 anm 脚本时长
+    (fast/normal/slow 三档, 脚本播完帧转 NORMAL, 转变帧数 = T+1)。
     """
 
-    anm_file_idx: int  # etama.anm 脚本索引 (g_BulletTypeInfos)
+    anm_file_idx: int  # etama.anm 活动脚本索引 (g_BulletTypeInfos/scripts[0])
     width: float  # 精灵宽(px)
     height: float  # 精灵高(px) = bulletHeight
-    graze_size: Vec2  # 擦弹/命中判定半宽
+    graze_size: Vec2  # 擦弹/命中判定尺寸(collisionSize)
     collision_type: int  # 绘制分层 0..5
+    spawn_t: tuple[int, int, int] = (0, 0, 0)  # 出生特效脚本时长 T (三档; 0=无出生态)
 
-
-# 16 个模板槽。TH07 只初始化前 11 个(g_BulletTypeInfos), 后 5 个槽未用(全 0)。
-# 精灵尺寸提取自游戏数据 data/etama.anm(th07.dat):
-#   0x200→8px, 0x201→16, 0x202→16, 0x203→16, 0x204→16, 0x205→16, 0x206→16,
-#   0x207→32, 0x208→32, 0x209→32, 0x2a8(=chunk2, 链式偏移 168)→8
-# graze/collision 按 AddedCallback 判定树: ≤8→(4,4,type5); ≤16→514/516/517/518
-# 特判(4,4,type4)否则(6,6,type3); ≤32→520:(5,5,type1) 521:(8,8,type2)
-# 否则(10,10,type2); >32→(24,24,type0)。
-BULLET_TYPE_SPECS: tuple[BulletTypeSpec, ...] = (
-    BulletTypeSpec(0x200, 8.0, 8.0, Vec2(4, 4), 5),  # 0: 小弹
-    BulletTypeSpec(0x201, 16.0, 16.0, Vec2(6, 6), 3),  # 1: 中弹
-    BulletTypeSpec(0x202, 14.0, 16.0, Vec2(4, 4), 4),  # 2: 米弹(514 特判)
-    BulletTypeSpec(0x203, 16.0, 16.0, Vec2(6, 6), 3),  # 3
-    BulletTypeSpec(0x204, 14.0, 16.0, Vec2(4, 4), 4),  # 4 (516 特判)
-    BulletTypeSpec(0x205, 14.0, 16.0, Vec2(4, 4), 4),  # 5 (517 特判)
-    BulletTypeSpec(0x206, 14.0, 16.0, Vec2(4, 4), 4),  # 6 (518 特判)
-    BulletTypeSpec(0x207, 32.0, 32.0, Vec2(10, 10), 2),  # 7: 大弹
-    BulletTypeSpec(0x208, 32.0, 32.0, Vec2(5, 5), 1),  # 8: 刀弹(520 特判)
-    BulletTypeSpec(0x209, 32.0, 32.0, Vec2(8, 8), 2),  # 9: 札弹(521 特判)
-    BulletTypeSpec(0x2A8, 8.0, 8.0, Vec2(4, 4), 5),  # 10: 光弹(链式 chunk)
-    # 11..15: TH07 未初始化(AddedCallback 只循环 i<11)
-    BulletTypeSpec(0, 0.0, 0.0, Vec2(0, 0), 0),
-    BulletTypeSpec(0, 0.0, 0.0, Vec2(0, 0), 0),
-    BulletTypeSpec(0, 0.0, 0.0, Vec2(0, 0), 0),
-    BulletTypeSpec(0, 0.0, 0.0, Vec2(0, 0), 0),
-    BulletTypeSpec(0, 0.0, 0.0, Vec2(0, 0), 0),
-)
 
 _DEFAULT_BULLET_SIZE = Vec2(16, 16)
 
@@ -101,34 +77,16 @@ _DEFAULT_BULLET_SIZE = Vec2(16, 16)
 # vel/2 | vel/2.5 | vel/3 移动, 不跑命令/不吃判定/不做出界; spawn 特效 anm
 # 脚本播完的当帧转 NORMAL 并落入 NORMAL 分支(当帧再全速位移一次)。
 # 出生态帧数由 etama.anm 的 spawn 特效脚本时长决定(ExecuteScript 在脚本结束
-# 帧返回 1): 这些脚本都是 t=T 时 EXIT_HIDE2, 即 T 帧纯出生态 + 第 T+1 帧转变。
-# 下表 T 值从真实 th07.dat 的 etama.anm 解出(脚本 0x212-0x218 / 0x2aa):
-#   弹型 0   : 0x212/0x213/0x214 → T = 10/16/32
-#   弹型 1-6 : 0x215/0x216/0x217 → T = 10/16/32
-#   弹型 7-9 : 0x218 三态共用    → T = 32
-#   弹型 10  : 0x2aa 三态共用    → T = 24
+# 帧返回 1): T 帧纯出生态 + 第 T+1 帧转变; T 是作品数据( BulletTypeSpec.spawn_t )。
 _SPAWN_MOVE_DIV = {2: 2.0, 4: 2.5, 8: 3.0}
-_SPAWN_SCRIPT_T = {
-    0: (10, 16, 32),
-    1: (10, 16, 32),
-    2: (10, 16, 32),
-    3: (10, 16, 32),
-    4: (10, 16, 32),
-    5: (10, 16, 32),
-    6: (10, 16, 32),
-    7: (32, 32, 32),
-    8: (32, 32, 32),
-    9: (32, 32, 32),
-    10: (24, 24, 24),
-}
 
 
-def spawn_state_spec(sprite: int, flags: int) -> tuple[int, int]:
-    """shooter flags/弹型 → (spawn_state, 转变帧数)。
+def _spawn_state_spec(spec: BulletTypeSpec | None, flags: int) -> tuple[int, int]:
+    """shooter flags/弹型模板 → (spawn_state, 转变帧数)。
 
     spawn_state = 触发的 flag 位 (2/4/8, 优先级同 C++ 的 if/elif 链);
     帧数 = 特效脚本 T + 1 (第 T+1 次 ExecuteScript 返回 1 → 当帧转 NORMAL)。
-    无 spawn 位或未知弹型返回 (0, 0)。
+    无 spawn 位、未知弹型或该档 T=0 返回 (0, 0)。
     """
     if flags & 2:
         bit, idx = 2, 0
@@ -138,57 +96,9 @@ def spawn_state_spec(sprite: int, flags: int) -> tuple[int, int]:
         bit, idx = 8, 2
     else:
         return 0, 0
-    t = _SPAWN_SCRIPT_T.get(sprite)
-    if t is None:
-        return 0, 0  # 11-15 槽 TH07 未初始化 (g_BulletTypeInfos 只有 11 项)
-    return bit, t[idx] + 1
-
-
-def bullet_type_size(bullet_type: int) -> Vec2:
-    """弹型 → 精灵尺寸(出界/反弹判定用)。未知弹型给 16px 默认。"""
-    if 0 <= bullet_type < len(BULLET_TYPE_SPECS):
-        spec = BULLET_TYPE_SPECS[bullet_type]
-        if spec.width > 0:
-            return Vec2(spec.width, spec.height)
-    return _DEFAULT_BULLET_SIZE
-
-
-# 弹型模板的活动 sprite 基址 (etama.anm 全局 sprite 索引)。
-# 提取口径: LoadAnms(11, "data/etama.anm", ANM_OFFSET_BULLETS=0x200) 链式加载,
-# 每条脚本(0x200..0x209, 0x2a8)的首个 set-sprite + 链式偏移;
-# C++ SpawnSingleBullet 的活动 sprite = 基址 + spriteOffset (直接相加, 无分辨率映射)。
-_BULLET_BASE_SPRITE_IDX: tuple[int, ...] = (
-    512,
-    528,
-    544,
-    560,
-    576,
-    592,
-    608,
-    624,
-    632,
-    640,
-    680,
-)
-
-
-def bullet_active_sprite_idx(sprite: int, sprite_offset: int) -> int:
-    """活动 sprite 索引 (SpawnSingleBullet: template.activeSpriteIdx + spriteOffset)。"""
-    if 0 <= sprite < len(_BULLET_BASE_SPRITE_IDX):
-        return _BULLET_BASE_SPRITE_IDX[sprite] + sprite_offset
-    return -1
-
-
-def bullet_sprite_height(sprite: int, sprite_offset: int) -> float:
-    """活动 sprite 的 heightPx —— ExIns 大弹判定(C++ spriteBullet.sprite->heightPx)。
-
-    与 BULLET_TYPE_SPECS 的差异只在模板 10 (脚本 0x2a8): 其 offset 0..3 是
-    64px 大玉(sprite 680-683), offset 4+ 是 16px(684-695); 其余模板的
-    offset 变体同尺寸(实测 608-647 区间等宽等高)。
-    """
-    if sprite == 10:
-        return 64.0 if 0 <= sprite_offset <= 3 else 16.0
-    return bullet_type_size(sprite).y
+    if spec is None or spec.spawn_t[idx] == 0:
+        return 0, 0
+    return bit, spec.spawn_t[idx] + 1
 
 
 class Burst(msgspec.Struct, frozen=True):
@@ -321,6 +231,10 @@ class BulletWorld(msgspec.Struct):
     # 敌弹判定半宽(擦弹/命中盒 = 弹 pos±bullet_radius 的均匀 AABB; 作品层判定
     # 管线消费本字段, fire() 生成子弹时把它物化到 Bullet.hitbox 供观测面读取)
     bullet_radius: float = 3.5
+    # 弹型模板表(作品专属数值, 构造注入 —— score_store catk_slot_count 同款
+    # 先例; 引擎不持有任何作品的表)。fire() 的出界尺寸与出生态帧数按此查;
+    # 空表 = 全部弹型走 16px 默认尺寸、无出生态。
+    type_specs: tuple[BulletTypeSpec, ...] = ()
     _bullets: list[Bullet] = msgspec.field(default_factory=list)
     # g_Supervisor.effectiveFramerateMultiplier 的弹幕侧 (ExIns 10/11 妖梦减速):
     # C++ 在"每次算 velocity"时乘上它 —— 出生速度/命令更新器的 dt, 位移本身不二次缩放
@@ -336,7 +250,16 @@ class BulletWorld(msgspec.Struct):
         """把一发 Burst 展开成实际子弹(SpawnBulletPattern 的双层循环)。
         返回生成颗数。"""
         count = 0
-        size = bullet_type_size(burst.sprite)
+        spec = (
+            self.type_specs[burst.sprite]
+            if 0 <= burst.sprite < len(self.type_specs)
+            else None
+        )
+        size = (
+            Vec2(spec.width, spec.height)
+            if spec is not None and spec.width > 0
+            else _DEFAULT_BULLET_SIZE
+        )
         for ring in range(burst.rings):
             for arm in range(burst.arms):
                 angle, speed = burst.angle_speed(arm, ring, self.rng)
@@ -363,7 +286,7 @@ class BulletWorld(msgspec.Struct):
                     b.more_flags |= c.type
                 # SpawnSingleBullet:255-283: flags 2/4/8 → 出生态 + pos -= vel*4
                 # (在 RunCommands 之前, 用出生速度回退)
-                st, frames = spawn_state_spec(burst.sprite, burst.flags)
+                st, frames = _spawn_state_spec(spec, burst.flags)
                 if st:
                     b.spawn_state = st
                     b.spawn_frames = frames

@@ -18,12 +18,11 @@ from touhou.engine.bullet_commands import (  # noqa: E402
     step_bullet,
 )
 from touhou.engine.bullets import (  # noqa: E402
-    BULLET_TYPE_SPECS,
     Aim,
     Bullet,
+    BulletTypeSpec,
     BulletWorld,
     Burst,
-    bullet_type_size,
     rank_lerp,
     rank_lerp_int,
 )
@@ -31,6 +30,22 @@ from touhou.engine.rng import Rng  # noqa: E402
 from touhou.utils import Vec2, angle_to  # noqa: E402
 
 P = Vec2(100, 100)  # 玩家占位
+
+# 机制测试用的合成弹型表(数值形状仿 th07 表: 8/14/16/32px 档 + 出生态
+# T 档 10/16/32/24; 作品真实表的对源断言在 tests/game_test/th07|th08/)。
+_TEST_SPECS: tuple[BulletTypeSpec, ...] = (
+    BulletTypeSpec(0x200, 8.0, 8.0, Vec2(4, 4), 5, spawn_t=(10, 16, 32)),  # 0: 8px
+    BulletTypeSpec(0x201, 16.0, 16.0, Vec2(6, 6), 3, spawn_t=(10, 16, 32)),  # 1: 16px
+    BulletTypeSpec(0x202, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 16, 32)),  # 2
+    BulletTypeSpec(0x203, 16.0, 16.0, Vec2(6, 6), 3, spawn_t=(10, 16, 32)),  # 3
+    BulletTypeSpec(0x204, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 16, 32)),  # 4
+    BulletTypeSpec(0x205, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 16, 32)),  # 5
+    BulletTypeSpec(0x206, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 16, 32)),  # 6
+    BulletTypeSpec(0x207, 32.0, 32.0, Vec2(10, 10), 2, spawn_t=(32, 32, 32)),  # 7: 32px
+    BulletTypeSpec(0x208, 32.0, 32.0, Vec2(5, 5), 1, spawn_t=(32, 32, 32)),  # 8: 32px
+    BulletTypeSpec(0x209, 32.0, 32.0, Vec2(8, 8), 2, spawn_t=(32, 32, 32)),  # 9: 32px
+    BulletTypeSpec(0x2A8, 8.0, 8.0, Vec2(4, 4), 5, spawn_t=(24, 24, 24)),  # 10: T=24
+)
 
 
 def _mk(
@@ -197,7 +212,7 @@ def test_spawn_delay_survives_offscreen_until_delay_ends() -> None:
 
 
 def test_fire_sets_more_flags_and_type_size() -> None:
-    w = BulletWorld()
+    w = BulletWorld(type_specs=_TEST_SPECS)
     w.fire(Burst(P, 0.0, Aim.RING_ABSOLUTE, 2, 1, 2.0, 2.0, 0.0, sprite=8, flags=0x200))
     b = w.alive()[0]
     assert b.more_flags == 0x200
@@ -319,42 +334,10 @@ def test_offscreen_grace_128_frames_for_commanded_bullets() -> None:
 
 
 # ======================================================================
-# 弹型模板表 (g_BulletTypeInfos + AddedCallback 判定树, 高度取自 etama.anm)
-# ======================================================================
-def test_bullet_type_specs_table() -> None:
-    assert len(BULLET_TYPE_SPECS) == 16
-    s0 = BULLET_TYPE_SPECS[0]
-    assert (s0.anm_file_idx, s0.height, s0.graze_size, s0.collision_type) == (
-        0x200,
-        8.0,
-        Vec2(4, 4),
-        5,
-    )
-    s1 = BULLET_TYPE_SPECS[1]
-    assert (s1.graze_size, s1.collision_type) == (Vec2(6, 6), 3)  # 16px 默认档
-    s2 = BULLET_TYPE_SPECS[2]
-    assert (s2.graze_size, s2.collision_type) == (Vec2(4, 4), 4)  # anm 514 特判
-    s7 = BULLET_TYPE_SPECS[7]
-    assert (s7.graze_size, s7.collision_type) == (Vec2(10, 10), 2)  # 32px 默认档
-    s8 = BULLET_TYPE_SPECS[8]
-    assert (s8.graze_size, s8.collision_type) == (Vec2(5, 5), 1)  # anm 520 特判
-    s9 = BULLET_TYPE_SPECS[9]
-    assert (s9.graze_size, s9.collision_type) == (Vec2(8, 8), 2)  # anm 521 特判
-    s10 = BULLET_TYPE_SPECS[10]
-    assert (s10.anm_file_idx, s10.height, s10.collision_type) == (0x2A8, 8.0, 5)
-    assert BULLET_TYPE_SPECS[11].anm_file_idx == 0  # 11..15 未初始化
-
-
-def test_bullet_type_size_fallback() -> None:
-    assert bullet_type_size(8) == Vec2(32.0, 32.0)
-    assert bullet_type_size(0) == Vec2(8.0, 8.0)
-    assert bullet_type_size(99) == Vec2(16, 16)  # 未知弹型默认 16px
-
-
-# ======================================================================
 # spawn 特效态 (BulletManager.cpp:255-283 出生 / :1022-1047 每帧)
 # 出生态帧数 = etama.anm spawn 特效脚本时长 T+1 (脚本 t=T EXIT_HIDE2):
-# 弹型 0-6 → T=10/16/32 (fast/normal/slow), 弹型 7-9 → 32, 弹型 10 → 24
+# 合成表 _TEST_SPECS 的 T 档: 弹型 0-6 → 10/16/32, 弹型 7-9 → 32, 弹型 10 → 24
+# (作品真实表的对源断言在 tests/game_test/th07|th08/)
 # ======================================================================
 
 
@@ -367,7 +350,7 @@ def _spawn_one(
     pos: Vec2 = Vec2(192, 100),
     commands: tuple = (),
 ) -> tuple[BulletWorld, Bullet]:
-    w = BulletWorld()
+    w = BulletWorld(type_specs=_TEST_SPECS)
     w.fire(
         Burst(
             pos,
@@ -534,7 +517,7 @@ def test_offscreen_grace_residual_countdown() -> None:
     cmd = BulletCommand(
         CmdFlag.DIR_CHANGE, speed=0.0, angle=-1000.0, duration=8, loop=1
     )
-    w = BulletWorld()
+    w = BulletWorld(type_specs=_TEST_SPECS)
     w.fire(
         Burst(
             Vec2(192, 20),
