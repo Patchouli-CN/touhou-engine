@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+from .anm import (
+    AnmBank,
+    AnmMachine,
+    AnmScript,
+    InterpChannel,
+    SpriteSlot,
+    build_bank,
+    build_script,
+)
 from .assembly import (
     GameAssembly,
     GameData,
@@ -24,6 +33,9 @@ from .snapshot import (
 )
 
 __all__ = [
+    "AnmBank",
+    "AnmMachine",
+    "AnmScript",
     "Button",
     "Command",
     "CommandQueue",
@@ -35,6 +47,7 @@ __all__ = [
     "GameAssembly",
     "GameData",
     "InputFrame",
+    "InterpChannel",
     "MenuAction",
     "Pipeline",
     "ResourcePaths",
@@ -45,9 +58,12 @@ __all__ = [
     "Slot",
     "SnapshotBuilder",
     "SpriteDraw",
+    "SpriteSlot",
     "System",
     "TextDraw",
     "World",
+    "build_bank",
+    "build_script",
     "check_assembly",
     "tick_frame",
 ]
