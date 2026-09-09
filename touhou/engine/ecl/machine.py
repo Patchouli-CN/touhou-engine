@@ -231,6 +231,10 @@ class EclMachine:
             return self.file.subs[ctx.sub_id].instrs
         return None
 
+    def rerun(self) -> bool:
+        """当帧重跑一次主循环(回调切换 sub 后的 goto HUH; False = 脚本结束)。"""
+        return self._run()
+
     def interrupt_call(self, sub_id: int) -> bool:
         """中断调用的公共尾巴: 返回点压栈 + 进中断 sub(宿主回调也用)。"""
         # EclManager.cpp RunEcl 的 runInterrupt 段

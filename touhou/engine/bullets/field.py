@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from enum import IntEnum
 
 import msgspec
@@ -433,6 +434,21 @@ class BulletField(msgspec.Struct):
                     BulletDespawned(b.pos.x, b.pos.y, b.sprite, DespawnCause.CLEARED)
                 )
         self._bullets.clear()
+
+    def clear_where(
+        self, pred: Callable[[Bullet], bool], events: EventStream | None = None
+    ) -> int:
+        """按谓词消弹(消弹盒等), 每颗产 BulletDespawned(CLEARED), 返回颗数。"""
+        doomed = [b for b in self._bullets if pred(b)]
+        if events is not None:
+            for b in doomed:
+                events.emit(
+                    BulletDespawned(b.pos.x, b.pos.y, b.sprite, DespawnCause.CLEARED)
+                )
+        if doomed:
+            gone = {id(b) for b in doomed}
+            self._bullets = [b for b in self._bullets if id(b) not in gone]
+        return len(doomed)
 
     def stop_bullet_movement(self) -> None:
         """BulletManager::StopBulletMovement (:1476-1500): 全场活弹速度清零永停。
