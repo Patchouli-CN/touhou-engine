@@ -39,6 +39,7 @@ from ...engine.player_base import DeathContext as _DeathContextBase
 from ...engine.player_base import DeathSettle as _DeathSettleBase
 from ...schema.shot_data import ShotData, ShotEntry
 from ...utils import Vec2
+from .shot_data import Th08ShotEntry
 
 # ---- th08 关键常量(Player.cpp) ----
 GRAZE_SCORE_NORMAL = 200  # 擦弹显示分(代码值 AddScore(2000), Player.cpp:483-485 段)
@@ -181,6 +182,9 @@ class Th08Player(PlayerBase[DeathContext]):
         self.time_orb_gauge_suppression = 0
         # 随机数注入点(确定性): rand_float(r) 返回 [0, r)
         self.rand_float: Callable[[float], float] = lambda r: 0.0
+        # 逐次 calc_damage_to_enemy 调用的命中记录 [(弹位快照, gauge_behavior,
+        # 伤害)], 供 world 的时刻符点 accumulator 消费 (Player.cpp:3322-3351)
+        self.shot_hit_log: list[list[tuple[Vec2, int, int]]] = []
 
     # ---- 人妖形态 ----
     @property
@@ -460,8 +464,8 @@ class Th08Player(PlayerBase[DeathContext]):
         - bs2 4/5(激光型)只在 timer%2==0 出伤害 (:3312);
         - bomb 中伤害 max(damage//5, 1) (:3325-3327, 注意 th08 是 /5);
         - 命中后弹进 HIT 态, 非穿透弹速度/8 (:3332-3344);
-        - collision 回调(1=ApplyShotHitBehavior/2=命中特效)的逻辑侧是
-          妖率计/时刻符点联动, 留后续阶段(单 B)。
+        - collision 回调(1=ApplyShotHitBehavior/2=命中特效)未接, 留后续;
+          时刻符点 accumulator 联动由 world 侧消费 shot_hit_log 实现。
         """
         bomb = self.bomb_active if bomb_active is None else bomb_active
         ex, ey = enemy_size[0] / 2, enemy_size[1] / 2
@@ -495,13 +499,25 @@ class Th08Player(PlayerBase[DeathContext]):
         *,
         bomb_active: bool | None = None,
     ) -> int:
-        """iter_hits 的求和封装(一帧对一个敌人的总伤害)。"""
-        return sum(
-            d
-            for _, d in self.iter_hits(
-                enemy_center, enemy_size, bomb_active=bomb_active
-            )
-        )
+        """iter_hits 的求和封装(一帧对一个敌人的总伤害); 逐发命中记入
+        shot_hit_log(每次调用追加一条, 与 engine shoot_hits 的调用序对齐)。"""
+        hits: list[tuple[Vec2, int, int]] = []
+        total = 0
+        for bullet, d in self.iter_hits(
+            enemy_center, enemy_size, bomb_active=bomb_active
+        ):
+            entry = bullet.entry
+            gb = entry.gauge_behavior if isinstance(entry, Th08ShotEntry) else 0
+            hits.append((Vec2(bullet.pos.x, bullet.pos.y), gb, d))
+            total += d
+        self.shot_hit_log.append(hits)
+        return total
+
+    def take_shot_hit_log(self) -> list[list[tuple[Vec2, int, int]]]:
+        """取走并清空命中日志(world 每帧 shoot_hits 后消费一次)。"""
+        log = self.shot_hit_log
+        self.shot_hit_log = []
+        return log
 
 
 def _bullet_out_of_bounds(b: PlayerBullet) -> bool:

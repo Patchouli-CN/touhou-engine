@@ -90,6 +90,9 @@ class Th08EnemyState(EclEnemyState):
     # 使魔父链: linkedChildCount(EclRunLow.inl:788-790; 链本体在 th08 宿主侧,
     # 喂 VM 变量 10096, EclOperandsInt.cpp:125-129)
     linked_child_count: int = 0
+    # playerShotHitAccumulator (EnemyManager.hpp:252): 射击命中符点累加器,
+    # -1=未初始化(出生=阈值 EnemyManager.cpp:190, 首次结算时懒置位, 语义等价)
+    shot_hit_accumulator: int = -1
 
 
 class Th08EclWorld(EclWorld):

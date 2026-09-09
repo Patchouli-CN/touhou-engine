@@ -5,7 +5,9 @@
 决死窗公式(Player.cpp:535-557)与决死冻结(deathbombFreezeActive)、
 时刻过面增量/Bad Ending(GameManager.cpp:1379-1470/:342-348)、
 4A/4B 分支(:1483-1505)、妖率槽界夹取/射击坡道/形态切换、
-使魔链死亡掉符点(EnemyManager.cpp:229-345)、结算评级
+使魔链死亡掉符点(EnemyManager.cpp:229-345)、
+射击命中 accumulator 掉符点(Player.cpp:3322-3351)/极限人妖击坠掉符点
+(EnemyManagerUpdate.cpp:570-574)、结算评级
 (ResultScreen.cpp:2153-2290)。
 
 纯逻辑用例(boss/player/results)不打标记; world 层全打 @needs_data。
@@ -17,17 +19,18 @@ import touhou  # noqa: F401  # import 即完成 th08 全维度注册
 from touhou.engine.ecl import Vec3
 from touhou.games.th08 import ecl_vm
 from touhou.games.th08.boss import TIMEOUT_SPELL_SCORE_LIMIT, Th08Boss
-from touhou.games.th08.ecl_state import Th08ContextArgs
+from touhou.games.th08.ecl_state import Th08ContextArgs, Th08EnemyState
 from touhou.games.th08.ecl_vm import Th08EclOpcode as Op
-from touhou.games.th08.globals import Th08Globals
 from touhou.games.th08.items import ItemType
 from touhou.games.th08.player import PlayerState, Th08Player
 from touhou.games.th08.results import RunStats, clear_percent, rating
+from touhou.games.th08.shot_data import Th08ShotEntry
 from touhou.games.th08.world import ImperishableNight
 from touhou.schema.shot_data import ShotData, ShotLevel
+from touhou.utils import Vec2
 
 from .conftest import needs_data
-from .test_th08_ecl import _build_ecl, _f, _instr
+from .test_th08_ecl import _f, _instr
 from .test_th08_world import (
     _inject_ecl,
     _isolate,
@@ -718,3 +721,215 @@ def test_stage1_long_smoke_spellcard_endings() -> None:
         if g.stage_no >= 2:
             break
     assert endings >= 1 or g.stage_no >= 2, "14000 帧内无符卡收束"
+
+
+# ---- 时刻符点产出侧(缺口#1): 射击命中 accumulator + 极限人/妖击坠 ----
+
+
+def _mk_orb_entry(gauge_behavior: int, damage: int = 10) -> Th08ShotEntry:
+    return Th08ShotEntry(
+        4,
+        0,
+        (0.0, 0.0),
+        (6.0, 6.0),
+        0.0,
+        0.0,
+        damage,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        gauge_behavior=gauge_behavior,
+    )
+
+
+def test_calc_damage_hit_log() -> None:
+    """calc_damage_to_enemy 每次调用追加一条命中记录(弹位快照/
+    gauge_behavior/伤害); take_shot_hit_log 取走即清
+    (world accumulator 的对齐消费源, Player.cpp:3322-3351)。"""
+    sd = ShotData(3.0, 18, 1.0, 24.0, 5.0, 32.0, 0.0, 96.0, 4.0, 2.0, 2.9, 1.9)
+    p = Th08Player(shot_data=sd)
+    b = p.bullet_pool[0]
+    b.bullet_state = 1
+    b.pos = Vec2(100.0, 100.0)
+    b.hitbox = (6.0, 6.0)
+    b.damage = 10
+    b.entry = _mk_orb_entry(-1)
+    dmg = p.calc_damage_to_enemy(Vec2(100.0, 102.0), (20.0, 20.0))
+    assert dmg == 10
+    assert p.take_shot_hit_log() == [[(Vec2(100.0, 100.0), -1, 10)]]
+    assert p.take_shot_hit_log() == []  # 取走即清
+    # bomb 中伤害 max(d//5, 1) 按实录 (Player.cpp:3317-3320)
+    b2 = p.bullet_pool[1]
+    b2.bullet_state = 1
+    b2.pos = Vec2(100.0, 100.0)
+    b2.hitbox = (6.0, 6.0)
+    b2.damage = 10
+    b2.entry = _mk_orb_entry(0)
+    dmg = p.calc_damage_to_enemy(Vec2(100.0, 100.0), (20.0, 20.0), bomb_active=True)
+    assert dmg == 2
+    assert p.take_shot_hit_log() == [[(Vec2(100.0, 100.0), 0, 2)]]
+
+
+@needs_data
+def test_shot_orb_accumulator_threshold_drops() -> None:
+    """产线 A: 出生 accumulator=阈值(咏唱组 40), 首次命中即掉 1 符点;
+    越阈判定发生在命中时(先判后积), 单次入账封顶 50
+    (Player.cpp:3322-3351/:1669-1674, EnemyManager.cpp:190)。"""
+    g = ImperishableNight(character=0, difficulty=1, seed=42)
+    _tick_until_alive(g)
+    _isolate(g)
+    g.globals.youkai_gauge = -10000  # 极限人类
+    st = Th08EnemyState()
+    pos = Vec2(192.0, 100.0)
+
+    def time_count() -> int:
+        return len([it for it in g.items.alive() if it.type == ItemType.TIME])
+
+    g._shot_orb_accumulate(st, [(pos, -1, 10)])
+    assert time_count() == 1  # 出生=40 → 首命中即越阈掉 1
+    assert st.shot_hit_accumulator == 10  # 40-40+min(10,50)
+    g._shot_orb_accumulate(st, [(pos, -1, 80)])  # 入账封顶 50
+    assert st.shot_hit_accumulator == 60
+    assert time_count() == 1  # 本次先判(10<40)后积, 不掉
+    g._shot_orb_accumulate(st, [(pos, -1, 1)])  # 60 ≥ 40 → 掉 1
+    assert time_count() == 2
+    assert st.shot_hit_accumulator == 21  # 60-40+1
+
+
+@needs_data
+def test_shot_orb_accumulator_gating() -> None:
+    """产线 A 限定: 非极限人类不掉(扣账照常); gauge_behavior>=0 的弹种
+    不掉; 极限妖不算(仅极限人类) (Player.cpp:3322-3329)。"""
+    g = ImperishableNight(character=0, difficulty=1, seed=42)
+    _tick_until_alive(g)
+    _isolate(g)
+    pos = Vec2(192.0, 100.0)
+
+    def time_count() -> int:
+        return len([it for it in g.items.alive() if it.type == ItemType.TIME])
+
+    # 中性妖率: 不掉, accumulator 照常扣/积
+    st = Th08EnemyState()
+    g._shot_orb_accumulate(st, [(pos, -1, 10)])
+    assert time_count() == 0
+    assert st.shot_hit_accumulator == 10  # 40-40+10
+    # 极限人类 + gauge_behavior>=0: 不掉
+    g.globals.youkai_gauge = -10000
+    st2 = Th08EnemyState()
+    g._shot_orb_accumulate(st2, [(pos, 1, 10)])
+    assert time_count() == 0
+    assert st2.shot_hit_accumulator == 10
+    # 极限妖: 产线 A 不适用
+    g.globals.youkai_gauge = 10000
+    st3 = Th08EnemyState()
+    g._shot_orb_accumulate(st3, [(pos, -1, 10)])
+    assert time_count() == 0
+    assert st3.shot_hit_accumulator == 10
+
+
+@needs_data
+def test_shot_orb_accumulator_solo_human_threshold() -> None:
+    """单人人类阈值 27 (Player.cpp:1669-1674, IsSoloHuman=shotType≥4 且偶数)。"""
+    g = ImperishableNight(character=4, difficulty=1, seed=42)  # 单人灵梦
+    _tick_until_alive(g)
+    _isolate(g)
+    g.globals.youkai_gauge = -10000
+    st = Th08EnemyState()
+    pos = Vec2(192.0, 100.0)
+
+    def time_count() -> int:
+        return len([it for it in g.items.alive() if it.type == ItemType.TIME])
+
+    g._shot_orb_accumulate(st, [(pos, -1, 26)])  # 出生=27 → 即掉 1
+    assert time_count() == 1
+    assert st.shot_hit_accumulator == 26  # 27-27+26
+    g._shot_orb_accumulate(st, [(pos, -1, 1)])  # 26+1=27, 本次不判
+    assert time_count() == 1
+    assert st.shot_hit_accumulator == 27
+    g._shot_orb_accumulate(st, [(pos, -1, 1)])  # 27 ≥ 27 → 掉
+    assert time_count() == 2
+    assert st.shot_hit_accumulator == 1
+
+
+@needs_data
+def test_shot_orb_accumulator_shoot_hits_wiring() -> None:
+    """产线 A 接线: shoot_hits 的逐发命中日志按敌人对齐 accumulator;
+    极限人类 + gauge_behavior<0 弹命中即掉符点。"""
+    g = ImperishableNight(character=0, difficulty=1, seed=42)
+    _tick_until_alive(g)
+    _isolate(g)
+    _inject_ecl(
+        g,
+        [
+            _instr(0, int(Op.SET_ANM), (4,)),
+            _instr(0, int(Op.WAIT), (99999,)),
+        ],
+    )
+    e = g.ecl_host.spawn_enemy(
+        0,
+        Vec3(192.0, 100.0, 0.0),
+        life=9999,
+        item_drop=-2,
+        score=100,
+        mirror=0,
+        context_args=Th08ContextArgs(),
+    )
+    assert e is not None
+    g.globals.youkai_gauge = -10000  # 极限人类
+    b = g.player.bullet_pool[0]
+    b.bullet_state = 1
+    b.pos = Vec2(192.0, 100.0)
+    b.velocity = Vec2(0.0, 0.0)
+    b.hitbox = (6.0, 6.0)
+    b.damage = 10
+    b.entry = _mk_orb_entry(-1)
+    g.tick(keys=(False, False, False, False, False, False))  # 停火, 只留手工弹
+    time_items = [it for it in g.items.alive() if it.type == ItemType.TIME]
+    assert len(time_items) == 1
+    assert e.state.shot_hit_accumulator == 10  # 40-40+10
+
+
+@needs_data
+def test_kill_reward_extreme_gauge_time_orb() -> None:
+    """产线 B: 极限人/妖击坠掉 1 时刻符点(位置=worldPosition);
+    中性不掉 (EnemyManagerUpdate.cpp:570-574)。直接调结算路径。"""
+    g = ImperishableNight(character=0, difficulty=1, seed=42)
+    _tick_until_alive(g)
+    _isolate(g)
+    _inject_ecl(
+        g,
+        [
+            _instr(0, int(Op.SET_ANM), (4,)),
+            _instr(0, int(Op.WAIT), (99999,)),
+        ],
+    )
+
+    def spawn() -> object:
+        e = g.ecl_host.spawn_enemy(
+            0,
+            Vec3(192.0, 100.0, 0.0),
+            life=9999,
+            item_drop=-2,
+            score=100,
+            mirror=0,
+            context_args=Th08ContextArgs(),
+        )
+        assert e is not None
+        return e
+
+    def time_items() -> list:
+        return [it for it in g.items.alive() if it.type == ItemType.TIME]
+
+    g.globals.youkai_gauge = -10000  # 极限人类
+    g._kill_reward(spawn(), 0)
+    assert len(time_items()) == 1
+    assert time_items()[0].pos == Vec2(192.0, 100.0)
+    g.globals.youkai_gauge = 10000  # 极限妖
+    g._kill_reward(spawn(), 1)
+    assert len(time_items()) == 2
+    g.globals.youkai_gauge = 0  # 中性: 不掉
+    g._kill_reward(spawn(), 2)
+    assert len(time_items()) == 2

@@ -11,7 +11,9 @@ th08 专属(出处 Reference/th08-ref/src/, 各方法注释标行号):
   MSG_FILES 表取(下标 = C currentStage = stage_no-1);
 - msg: 文本 XOR 0x77 + 立绘 4 槽(schema/msg.py 参数化), MsgRead 清场在
   宿主侧(ecl_host.msg_read, Gui.cpp:242-244);
-- 时刻符点: ITEM_TIME 道具收集 → globals.add_time_orbs; 阈值表
+- 时刻符点: ITEM_TIME 道具收集 → globals.add_time_orbs; 产出侧 = 射击命中
+  accumulator(_shot_orb_accumulate, Player.cpp:3322-3351) + 极限人/妖击坠
+  (EnemyManagerUpdate.cpp:570-574) + 使魔链/消弹圈/符卡收取; 阈值表
   data.TIME_ORB_THRESHOLDS 进 globals.last_spell_time_orb_threshold
   (GameManager.cpp:881); 变量 10098 的发布在 _step_ecl;
 - 妖率计: 收集/擦弹/死亡联动(ItemManager.cpp:634-636/Player.cpp:483-484/
@@ -911,6 +913,19 @@ class ImperishableNight:
             used_bomb=bool(self.boss and self.boss.used_bomb),
             bomb_box_hit=self._bomb_box_hit,
         )
+        # 射击命中 accumulator → 时刻符点: shoot_hits 对每个受伤敌人调
+        # calc_damage_to_enemy 1 次(+graze_size.x>0 再 1 次, 同 C++ 主/副
+        # 判定盒两次 CalcDamageToEnemy 共用一个 accumulator,
+        # EnemyManagerUpdate.cpp:324-339), 按结果序对齐消费命中日志
+        hit_log = self.player.take_shot_hit_log()
+        li = 0
+        for e, _r in results:
+            st = getattr(e, "state", None)
+            self._shot_orb_accumulate(st, hit_log[li])
+            li += 1
+            if e.graze_size.x > 0.0:
+                self._shot_orb_accumulate(st, hit_log[li])
+                li += 1
         for _, r in results:
             if r.score_code:
                 g.add_score(r.score_code)
@@ -1750,9 +1765,29 @@ class ImperishableNight:
         self._cancel_region_items(ppos, 48.0, ItemType.TIME)
         p.time_orb_gauge_suppression = 0  # :327
 
+    def _shot_orb_accumulate(
+        self, st: Th08EnemyState | None, hits: list[tuple[Vec2, int, int]]
+    ) -> None:
+        """射击命中 accumulator: 越阈值且极限人类且弹种 gauge_behavior<0
+        → 在弹位掉 1 个时刻符点 (Player.cpp:3322-3351)。"""
+        if not isinstance(st, Th08EnemyState):
+            return
+        # 阈值: 单人人类 27 / 其他 40 (Player.cpp:1669-1674, IsSoloHuman)
+        threshold = 27 if self.character in (4, 6, 8, 10) else 40
+        if st.shot_hit_accumulator < 0:
+            st.shot_hit_accumulator = threshold  # 出生即阈值 (EnemyManager.cpp:190)
+        total = 0
+        for pos, gauge_behavior, dmg in hits:
+            total += dmg
+            while st.shot_hit_accumulator >= threshold:
+                if self.globals.gauge_is_extremely_human() and gauge_behavior < 0:
+                    self.items.spawn(pos, ItemType.TIME, power=self.power)
+                st.shot_hit_accumulator -= threshold
+        st.shot_hit_accumulator += min(total, 50)  # Player.cpp:3351
+
     def _kill_reward(self, e, counter: int) -> None:
-        """击杀入账: 得分 + 掉落 + 击坠音 (EnemyManager 死亡分支 +
-        Enemy::DropItems(0), EnemyManager.cpp:743-800)。
+        """击杀入账: 得分 + 掉落 + 极限人/妖掉时刻符点 + 击坠音
+        (EnemyManager 死亡分支 + Enemy::DropItems(0), EnemyManager.cpp:743-800)。
 
         使魔链死亡掉时刻符点经宿主 on_chain_kill 钩子(在 kill→拆链前触发,
         见 _detach_chain_rewards, EnemyManager.cpp:229-345); 击坠妖率 ±200
@@ -1765,6 +1800,15 @@ class ImperishableNight:
             if not self.bomb.is_in_use:
                 # 击坠妖率: focus(妖) +200, 否则 -200 (EnemyManagerUpdate.cpp:483-486)
                 g.add_to_youkai_gauge(200 if self.player.focus else -200)
+            if g.gauge_is_extremely_human() or g.gauge_is_extremely_youkai():
+                # 极限人/妖击坠掉 1 时刻符点 (EnemyManagerUpdate.cpp:570-574;
+                # C++ 的 AUTOCOLLECT 实参被 SpawnItem 覆盖为 TIME_RISING,
+                # ItemManager.cpp:57-60)
+                self.items.spawn(
+                    Vec2(st.pos.x + st.pos_offset.x, st.pos.y + st.pos_offset.y),
+                    ItemType.TIME,
+                    power=self.power,
+                )
             if not e._kill_no_score:  # 仅 death_type==2 无 AddScore (同 th07)
                 g.add_score(st.score)
             d = st.item_drop
