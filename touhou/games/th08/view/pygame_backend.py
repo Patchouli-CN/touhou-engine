@@ -117,6 +117,31 @@ _CURSOR_COLOR = (255, 220, 130)
 _DIM_COLOR = (140, 140, 160)
 
 
+def _fmt_clock(minutes: int) -> str:
+    """结算时刻文本 "%s%2d:%.2d" (Gui.cpp:1866-1880): AM/PM + 12 进制小时
+    (0 点显示 " 0" 不显示 12, 原作同)。"""
+    period = "PM" if minutes // 60 < 12 else "AM"
+    return f"{period}{minutes // 60 % 12:2d}:{minutes % 60:02d}"
+
+
+def _clock_step(state: list[int], fast: bool) -> None:
+    """结算时钟步进 (Gui.cpp:1098-1127): state = [timer, current, target]
+    (分钟); 60 帧延迟后每帧 +1, 按住射击/跳过再 +3, 到 target 停。"""
+    timer, current, target = state
+    if current == target:
+        return
+    if timer < 60:
+        state[0] = timer + 1
+        return
+    if current < target:
+        current += 1
+        if fast:
+            current += 3
+        state[1] = min(current, target)
+    else:
+        state[0] = timer + 1
+
+
 def _key_code(name: str) -> "int | None":
     """pygame 键名 → 键码; 未知名(坏 config/手误)返回 None 跳过, 不炸。"""
     try:
@@ -188,6 +213,10 @@ class PygameTh08Renderer:
         self._game_surf = None
         self._shake = ScreenShake()
         self._shake_consumed = None  # 已消费的 frame_shakes 所属 (id(game), frame)
+        # 结算面板时刻步进(Gui.cpp:1098-1127): [timer, current, target](分钟)
+        self._last_held: frozenset[str] = frozenset()  # poll_input 留档
+        self._results_sr: dict | None = None  # 步进状态所属快照(身份比较)
+        self._results_clock: list[int] | None = None
         # 菜单 SE(懒加载三件套, 静音容错)
         self._menu_se_loaded = False
         self._menu_sounds: dict[str, pygame.mixer.Sound] = {}
@@ -304,13 +333,15 @@ class PygameTh08Renderer:
                     esc = True  # 游戏内暂停开关(固定 Esc, 不动)
             elif ev.type == pygame.KEYUP:
                 log.trace("KEYUP   {}", pygame.key.name(ev.key))
+        held = self.held_actions(pygame.key.get_pressed())
+        self._last_held = held  # 结算时钟快进判定用 (Gui.cpp:1108)
         return FrameInput(
             quit=quit_req,
             menu_actions=tuple(menu_actions),
             advance=advance,
             esc=esc,
             captured_key=captured,
-            held=self.held_actions(pygame.key.get_pressed()),
+            held=held,
         )
 
     # ---- 合成辅助 ----
@@ -787,7 +818,8 @@ class PygameTh08Renderer:
         self._blit_scaled(frame)
 
     def _render_stage_results(self, surf, sr: dict) -> None:
-        """过关结算面板(文字版; 贴图版二期)。sr = world._on_stage_results 快照。"""
+        """过关结算面板(文字版; 贴图版二期)。sr = world._on_stage_results 快照。
+        末尾附时刻步进行(Gui.cpp:1861-1882 + :1098-1127)。"""
         try:
             box = pygame.Surface((280, 240), pygame.SRCALPHA)
             box.fill((10, 10, 40, 220))
@@ -811,6 +843,31 @@ class PygameTh08Renderer:
                 ),
                 (16, y + 4),
             )
+            # 时刻步进行 (Gui.cpp:1861-1882 显示 + :1098-1127 步进;
+            # 仅面 1-5 = stage<=6, 对应 currentStage<=STAGE5)
+            snap = sr.get("snapshot") or {}
+            if sr.get("stage", 99) <= 6 and "clock_start" in snap:
+                if sr is not self._results_sr:
+                    self._results_sr = sr
+                    start = snap["clock_start"] * 30 + 660  # 0x294 (:651)
+                    target = (
+                        min(12, snap["clock_start"] + snap.get("clock_increment", 0))
+                        * 30
+                        + 660
+                    )
+                    self._results_clock = [0, start, target]
+                st = self._results_clock
+                assert st is not None
+                _clock_step(st, bool({"shoot", "skip"} & self._last_held))
+                cy, cx = y + 28, 16
+                for text, rgb in (
+                    (_fmt_clock(snap["clock_start"] * 30 + 660), (223, 223, 223)),
+                    (">>", (175, 175, 175)),
+                    (_fmt_clock(st[1]), (255, 143, 143)),
+                ):
+                    seg = font.render(text, True, rgb)
+                    box.blit(seg, (cx, cy))
+                    cx += seg.get_width() + 6
             surf.blit(box, ((GAME_W - 280) // 2, (GAME_H - 240) // 2))
         except Exception:
             pass  # 渲染失败不拖垮游戏循环

@@ -307,6 +307,9 @@ class Th08GameEclHost(EclHost):
         self.ecl_machine_cls = ecl_machine_cls
         # 时刻: 本篇 23:00 开局, EX 面 2:00(GameManagerSetup.cpp:101-105)
         self.clock = Th08Clock.for_extra() if extra else Th08Clock.for_stage()
+        # op181 表盘闪动 interrupt 号(1=慢闪 2=快闪, Gui.cpp:2012-2029);
+        # view 消费后清零
+        self.clock_flash: int = 0
         # ---- EX 指令的宿主侧状态(EclExIns.cpp 对照) ----
         self.night_blindness_alpha = 0  # ex0: AsciiManager.nightBlindnessAlpha
         self.night_blindness_radius = 0.0  # ex0: nightBlindnessRadius
@@ -835,10 +838,11 @@ class Th08GameEclHost(EclHost):
 
     def clock_advance(self) -> None:
         """op181(EclRunHigh.inl:957-967): <12 才推进; 音效 0x2D;
-        到 12 表盘快闪否则慢闪(GUI 表现, 不接)。"""
+        到 12 表盘快闪否则慢闪(clock_flash 透出 interrupt 号给 view)。"""
         if self.clock.units < 12:
             self.play_sound(0x2D)
             self.clock.advance()
+            self.clock_flash = 2 if self.clock.units >= 12 else 1
 
     def clock_hide(self) -> None:
         """op180(EclRunHigh.inl:956): Gui.HideClockTime。"""

@@ -11,8 +11,8 @@ interrupt 1 滑入后取值); 坐标为 640x480 窗口坐标。
   Bomb/Power/Graze/Point/Time 左上 (432,40/56/88/104/136/152/168/184)。
 - 装饰: sprite0 左上 (480,208), sprite1 中心锚 (512,416) scale 1.12
   (front.anm script 0/1 稳态, Gui.cpp:1213-1214)。
-- 数值(ascii.anm 16x16 字形, 字符 c → 扁平 sprite ord(c),
-  AsciiManager.cpp:1592 GetSprite(*charPtr); 步进 13 = spaceWidth,
+- 数值(ascii.anm 16x16 字形, 字符 c → 扁平 sprite ord(c)-1,
+  AsciiManager.cpp:447 GetSprite(*text + (31 - ' ')); 步进 13 = spaceWidth,
   :240): HiScore (488,40) %.9d + continues 后缀 +117, Score (488,56)
   %.9d + retries 后缀 (Gui.cpp:1264-1278); Graze (488,152) %d;
   Point (488,168) %d/%d; Time (488,184) 时刻符点 %d/%d, 达标变色
@@ -23,7 +23,14 @@ interrupt 1 滑入后取值); 坐标为 640x480 窗口坐标。
   0x80e0e0ff (Gui.cpp:1311-1346); 数字(power<128)或 "MAX" (488,136)。
 - 时刻表盘: times.anm script 2 稳态中心锚 (320,96), sprite = 时刻单位
   (Gui.cpp:2006-2007 StartStageBackgroundSequence SetSprite(GetClockTime));
-  op180 隐藏(clock.hidden)时不画 (Gui.cpp:2032-2035 HideClockTime)。
+  op180 隐藏(clock.hidden)时不画 (Gui.cpp:2032-2035 HideClockTime);
+  op181 推进时刻时表盘闪动 = clock_flash interrupt 1/2 慢闪/快闪
+  (EclRunHigh.inl:957-967 → Gui.cpp:2012-2029 FlashClockTimeSlow/Fast)。
+- 开局大钟: 换面时 times.anm script 0 跑一遍(大号时刻标题, 播完自隐,
+  Gui.cpp:2093-2095 AddedCallback 的 clockIntroVm)。
+- 符卡收取横幅 (Gui.cpp:1951-1965): 居中 "Spell Card Bonus!"(红) +
+  "+N"(2 倍粉字 0xffff8080); 清场横幅 (Gui.cpp:1892-1897 +
+  :1000-1009): " BONUS %8d" 30 帧滑入 416→104, y=48, 0xffffff80。
 - 妖率计(AsciiManager::OnDrawHighPrioImpl, AsciiManager.cpp:1737-1807):
   ascii.anm script 5 槽(128x16, 左上锚 (32,449), interrupt 1 滑入稳态),
   script 6/7 人/妖图标(左上 (88,449) 再按槽界偏移 :256-257),
@@ -43,7 +50,7 @@ from pathlib import Path
 
 import pygame
 
-from ....engine.view.anm_fx import AnmScriptBank
+from ....engine.view.anm_fx import AnmScriptBank, TransformCache, Vm2d
 from ....engine.view.anm_vm import reset_and_run
 from ....engine.view.sprite_bank import SpriteBank
 from .anm_vm import AnmVmTh08
@@ -80,6 +87,11 @@ _FPS_POS = (190, 466)
 _MARKER_Y = 472.0
 _MARKER_FLICKER = {2: 8, 3: 4, 4: 2}
 
+# 清场 BONUS 横幅滑入 (Gui.cpp:1000-1009): timer<30 时 x = 416 - timer*312/30
+_BONUS_X_START = 416.0
+_BONUS_X_END = 104.0
+_BONUS_SLIDE_FRAMES = 30
+
 # 妖率计稳态布局(脚本 interrupt 1 滑入后静态求值; 见模块 docstring)
 _GAUGE_POS = (32.0, 449.0)  # script 5 槽左上
 _GAUGE_ICON_BASE_X = 88.0  # script 6/7 图标滑入稳态 x (再按槽界偏移)
@@ -101,6 +113,11 @@ class HudView:
         self._fps_font: pygame.font.Font | None = None
         # 脚本稳态求值缓存: (anm, 扁平脚本 id, interrupt) → (img, pos, anchor, scale)
         self._steady: dict[tuple, tuple | None] = {}
+        # 时刻表盘/开局大钟的活 VM (times.anm script 2/0; 换面重开)
+        self._tcache = TransformCache()
+        self._dial: Vm2d | None = None
+        self._intro: Vm2d | None = None
+        self._clock_key: tuple | None = None  # (id(game), stage_no)
 
     # ---- 脚本表(扁平序号空间) ----
     def _sbank(self, name: str) -> AnmScriptBank | None:
@@ -171,13 +188,14 @@ class HudView:
     def _glyph(
         self, ch: str, color: tuple[int, int, int] = (255, 255, 255)
     ) -> pygame.Surface | None:
-        """ascii 字形: 扁平 sprite ord(c) (AsciiManager.cpp:1592); 按颜色缓存。"""
+        """ascii 大字 16x16: 扁平 sprite ord(c)-1 (AsciiManager.cpp:447
+        GetSprite(*text + (31 - ' '))); 按颜色缓存。"""
         if not (32 <= ord(ch) < 160):
             return None
         sb = self._sbank(_ASCII)
         if sb is None:
             return None
-        base = sb.sprite_surf(ord(ch))
+        base = sb.sprite_surf(ord(ch) - 1)
         if base is None:
             return None
         key = (ord(ch), color)
@@ -345,21 +363,97 @@ class HudView:
             _TIME_READY_COLOR if ready else (255, 255, 255),
         )
 
-    # ---- 时刻表盘(times.anm script 2, sprite = 时刻单位) ----
+    # ---- 时刻表盘(times.anm script 2 活 VM) + 开局大钟(script 0) ----
+    def _vm2d(self, name: str) -> Vm2d | None:
+        sb = self._sbank(name)
+        if sb is None:
+            return None
+        return Vm2d(sb, self._tcache, AnmVmTh08)
+
     def _render_clock(self, surf: pygame.Surface, game) -> None:
         host = getattr(game, "ecl_host", None)
         clock = getattr(host, "clock", None)
-        if clock is None or clock.hidden:
+        if clock is None:
             return
-        sb = self._sbank(_TIMES)
-        if sb is None:
+        units = min(12, max(0, clock.units))
+        key = (id(game), getattr(game, "stage_no", 0))
+        if key != self._clock_key:
+            # AddedCallback (Gui.cpp:2093-2095): 开局大钟 + 表盘重开
+            self._clock_key = key
+            self._dial = self._vm2d(_TIMES)
+            if self._dial is not None and not self._dial.start(2):
+                self._dial = None
+            self._intro = self._vm2d(_TIMES)
+            if self._intro is not None:
+                if self._intro.start(0):
+                    self._intro.set_sprite(units)  # SetSprite(GetClockTime)
+                else:
+                    self._intro = None
+        dial = self._dial
+        if dial is not None:
+            flash = getattr(host, "clock_flash", 0)
+            if flash:
+                host.clock_flash = 0
+                # FlashClockTimeSlow/Fast (Gui.cpp:2012-2029)
+                dial.vm.pending_interrupt = flash
+            dial.set_sprite(units)
+            dial.execute()
+            if not clock.hidden:  # HideClockTime (Gui.cpp:2032-2035)
+                dial.draw(surf, float(dial.vm.pos[0]), float(dial.vm.pos[1]))
+        intro = self._intro
+        if intro is not None:
+            intro.execute()
+            if intro.alive:
+                intro.draw(surf, float(intro.vm.pos[0]), float(intro.vm.pos[1]))
+            else:
+                self._intro = None
+
+    # ---- 横幅 (Gui::DrawAsciiText) ----
+    def _render_spellcard_bonus(self, surf: pygame.Surface, game) -> None:
+        """符卡收取横幅: 红标题 + 2 倍粉字 "+N" 居中 (Gui.cpp:1951-1965)。"""
+        g = game.globals
+        if not getattr(g, "spellcard_bonus", 0):
             return
-        st = self._script_steady(_TIMES, 2)
-        if st is None:
+        title = "Spell Card Bonus!"
+        x = (384.0 - len(title) * 13.0) / 2.0 + 32.0  # :1954 居中(按实际步进 13)
+        self._draw_text(surf, x, 80.0, title, (255, 0, 0))  # 0xffff0000
+        num = f"+{g.spellcard_bonus}"
+        x = (384.0 - len(num) * 26.0) / 2.0 + 32.0  # :1959 2 倍宽居中
+        for ch in num:  # SetScale(2,2) + 0xffff8080 (:1960-1962)
+            img = self._glyph2x(ch, (255, 128, 128))
+            if img is not None:
+                surf.blit(img, (int(x), 96))
+            x += 26.0
+
+    def _render_bonus_score(self, surf: pygame.Surface, game) -> None:
+        """清场 " BONUS %8d" 横幅: 30 帧滑入 416→104, y=48
+        (Gui.cpp:1892-1897 + :1000-1009)。"""
+        g = game.globals
+        if not getattr(g, "bonus_score", 0):
             return
-        _img, (x, y), anchor, _scale = st
-        dial = sb.sprite_surf(min(12, max(0, clock.units)))
-        self._blit_at(surf, dial, x, y, anchor)
+        t = g.bonus_score_timer
+        if t < _BONUS_SLIDE_FRAMES:
+            x = (
+                _BONUS_X_START
+                - t * (_BONUS_X_START - _BONUS_X_END) / _BONUS_SLIDE_FRAMES
+            )
+        else:
+            x = _BONUS_X_END
+        self._draw_text(surf, x, 48.0, f" BONUS {g.bonus_score:8d}", (255, 255, 128))
+
+    def _glyph2x(self, ch: str, color: tuple[int, int, int]) -> pygame.Surface | None:
+        """2 倍 ascii 字形(横幅大号数字用), 按 (字符, 颜色) 缓存。"""
+        key = ("2x", ord(ch), color)
+        out = self._tint.get(key)
+        if out is None:
+            base = self._glyph(ch, color)
+            if base is None:
+                return None
+            out = pygame.transform.scale(
+                base, (base.get_width() * 2, base.get_height() * 2)
+            )
+            self._tint[key] = out
+        return out
 
     # ---- 妖率计(AsciiManager.cpp:1737-1807) ----
     def _gauge_zone_color(self, g) -> tuple[int, int, int]:
@@ -510,11 +604,14 @@ class HudView:
         self._render_stats(surf, game)
 
     def render_overlay(self, surf: pygame.Surface, game) -> None:
-        """画时刻表盘 + 妖率计 + ENEMY 警示灯(在游戏区 blit 之后调; 原版
-        Gui/AsciiManager 画在全窗口 framebuffer 高层, 盖在游戏场景上)。"""
+        """画时刻表盘 + 开局大钟 + 妖率计 + ENEMY 警示灯 + 横幅(在游戏区
+        blit 之后调; 原版 Gui/AsciiManager 画在全窗口 framebuffer 高层,
+        盖在游戏场景上)。"""
         self._render_clock(surf, game)
         self._render_gauge(surf, game)
         self._render_boss_marker(surf, game)
+        self._render_spellcard_bonus(surf, game)
+        self._render_bonus_score(surf, game)
 
     def render_fps(self, surf: pygame.Surface, fps: float) -> None:
         """帧率显示(ascii 贴字无 '.'/字母字形, 用小号字体; 位置同 th07 惯例)。"""
