@@ -58,6 +58,33 @@ def sniff_pbgz(header: bytes) -> bool:
     return header[:4] == MAGIC
 
 
+# g_DecryptParams(Global.cpp:891-896): (key, xorValue, xorValueInc, chunkSize, maxBytes)
+_DECRYPT_PARAMS: tuple[tuple[int, int, int, int, int], ...] = (
+    (0x5D, 0x1B, 0x37, 0x0040, 0x2800),
+    (0x74, 0x51, 0xE9, 0x0040, 0x3000),
+    (0x71, 0xC1, 0x51, 0x1400, 0x2000),
+    (0x8A, 0x03, 0x19, 0x1400, 0x7800),
+    (0x95, 0xAB, 0xCD, 0x0200, 0x1000),
+    (0xB7, 0x12, 0x34, 0x0400, 0x2800),
+    (0x9D, 0x35, 0x97, 0x0080, 0x2800),
+    (0xAA, 0x99, 0x37, 0x0400, 0x1000),
+)
+# g_CryptSignature 各减 0x20/0x40/0x60(Global.cpp:898,906-908) = "edz"
+_SIGNATURE = (0x85 - 0x20, 0xA4 - 0x40, 0xDA - 0x60)
+
+
+def try_decrypt_signed(data: bytes) -> bytes:
+    """条目内层签名解密: 命中 "edz" 前缀则按参数行解密, 否则原样返回。"""
+    # TryDecryptFromTable(Global.cpp:901-927); 出处 old/touhou/games/th08/crypt.py
+    if len(data) < 4 or tuple(data[:3]) != _SIGNATURE:
+        return data
+    # C 的循环是 int 比较(key - (i<<4) - 0x10 可为负, 负值永远不等 u8 字节)
+    for i, (key, xor, inc, chunk, max_bytes) in enumerate(_DECRYPT_PARAMS):
+        if data[3] == key - (i << 4) - 0x10:
+            return decrypt(data[4:], xor, inc, chunk, max_bytes)
+    return data
+
+
 def parse_pbgz(data: bytes, path: str | None = None) -> Archive:
     """解析 PBGZ 整包字节; 头不对抛 ArchiveFormatError。"""
     # 布局出处 old/touhou/schema/archive/pbgz.py(PbgArchive.cpp:138-269):

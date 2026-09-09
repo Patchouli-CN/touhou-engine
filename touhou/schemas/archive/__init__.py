@@ -8,7 +8,7 @@ from ..exceptions import ArchiveFormatError
 from .base import Archive, ArchiveEntry, find_entry, load_entry, raw_entry
 from .lzss import lzss_decompress
 from .pbg4 import parse_pbg4, sniff_pbg4
-from .pbgz import parse_pbgz, sniff_pbgz
+from .pbgz import parse_pbgz, sniff_pbgz, try_decrypt_signed
 
 __all__ = [
     "Archive",
@@ -21,6 +21,7 @@ __all__ = [
     "parse_pbgz",
     "raw_entry",
     "sniff_archive",
+    "try_decrypt_signed",
 ]
 
 # 已知格式: 名字 → (认头, 解析); 作品 → 格式的绑定归 games/compose, 不归这层
