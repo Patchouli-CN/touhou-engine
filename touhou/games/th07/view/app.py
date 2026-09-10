@@ -12,6 +12,7 @@ from .game_scene import GameScene
 from .menu_vms import MenuVmSet
 from .musicroom import MusicRoomScene
 from .option import OptionScene
+from .playerdata import PlayerDataScene
 from .scene import run_scenes
 from .title import MenuMemory, StartRequest, TitleScene
 
@@ -21,6 +22,7 @@ SCORE_PATH = "score.json"
 #: 配置落盘位置(原版 th07.cfg 的 JSON 简化版, games/th07/config.py)
 CONFIG_PATH = "config.json"
 
+_MENU_RESULT = 4  # MENU_CURSOR_PREINPUT_RESULTS (MainMenu.hpp:46)
 _MENU_MUSIC_ROOM = 5  # MENU_CURSOR_PREINPUT_MUSICROOM (MainMenu.hpp:47)
 _MENU_OPTION = 6  # MENU_CURSOR_PREINPUT_OPTIONS (MainMenu.hpp:48)
 
@@ -67,9 +69,24 @@ def run_app(
             memory,
             anm_version=assembly.scripts.anm_version,
             on_start=make_game,
-            submenus={_MENU_MUSIC_ROOM: make_musicroom, _MENU_OPTION: make_option},
+            submenus={
+                _MENU_RESULT: make_playerdata,
+                _MENU_MUSIC_ROOM: make_musicroom,
+                _MENU_OPTION: make_option,
+            },
             vm_set=vm_set,
             cursor=cursor,
+        )
+
+    def make_playerdata(title: TitleScene) -> PlayerDataScene:
+        return PlayerDataScene(
+            archive,
+            store,
+            anm_version=assembly.scripts.anm_version,
+            spellcard_count=len(assembly.data.spellcard_scores),
+            # Player Data 是独立 chain(RegisterChain type=0, Supervisor.cpp:233),
+            # 返回重建主菜单, 光标停 Player Data(MainMenu.cpp:2627-2628)
+            on_exit=lambda: make_title(cursor=_MENU_RESULT),
         )
 
     def make_musicroom(title: TitleScene) -> MusicRoomScene:

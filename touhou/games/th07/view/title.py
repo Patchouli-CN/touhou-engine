@@ -76,7 +76,7 @@ class TitleScene(MenuScene):
     """标题/主菜单/选择画面: PRE_INPUT → 难度 → 机体 → 装备 → 开局或 Quit。
 
     submenus: 主菜单项 → scene 工厂(吃当前 TitleScene, 取共享 VM 阵列用);
-    已接 Option/MusicRoom; Extra/Practice/Replay/Result 后续单
+    已接 PlayerData/MusicRoom/Option; Extra/Practice/Replay 后续单
     往这个表里挂(空项按下无反应)。
     """
 
@@ -214,7 +214,7 @@ class TitleScene(MenuScene):
             return False
         factory = self._submenus.get(cursor)
         if factory is None:
-            return False  # Extra/Practice/Replay/Result 留待后续单
+            return False  # Extra/Practice/Replay 留待后续单
         if mv.cur_desc is not None:
             mv.cur_desc.pending_interrupt = 2
         self._next = factory(self)
