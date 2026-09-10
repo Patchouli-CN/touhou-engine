@@ -1,9 +1,9 @@
-"""th07 的对局世界: engine field 组合 + 帧管线 + ECL 接线 + 事件结算入口。
+"""th07 的对局世界: engine field 组合 + 帧管线 + ECL/MSG 接线 + 事件结算入口。
 
 帧序对齐 old/touhou/games/th07/world.py 的 tick(748-1008): 同步 → bomb(触发/
-推进/清弹/伤害盒) → 时间轴 → 敌 ECL → 结界 → 自机 → boss → 显示分追赶
+推进/清弹/伤害盒) → 时间轴 → msg → 敌 ECL → 结界 → 自机 → boss → 显示分追赶
 (LOGIC); 自机弹/敌弹/道具/激光(MOVEMENT); 体术 → 自机弹伤害 → 敌弹判定 →
-结界清弹圆 → 收集 → 激光判定(COLLISION)。msg/换关不在本切片(留待)。
+结界清弹圆 → 收集 → 激光判定(COLLISION)。对话/结算/换关的作品语义在 msg.py。
 """
 
 from __future__ import annotations
@@ -29,9 +29,11 @@ from ...engine import (
     LaserCollisionSystem,
     LaserField,
     LaserMovementSystem,
+    MsgExecutor,
     Pipeline,
     PlayerState,
     PlayerSystem,
+    ResourcePaths,
     SceneSnapshot,
     ShotField,
     ShotMovementSystem,
@@ -46,7 +48,8 @@ from ...engine.enemies import Enemy
 from ...engine.events import Event, EventHandler
 from ...engine.items import STATE_ATTRACT
 from ...engine.rng import Rng
-from ...schemas.archive import load_entry, open_archive
+from ...schemas.archive import Archive, load_entry, open_archive
+from ...schemas.msg import parse_msg
 from ...schemas.shot_data import parse_sht
 from ...utils.math import Vec2
 from . import settle
@@ -64,6 +67,7 @@ from .ecl_timeline import TL_HANDLERS
 from .enemies import Th07EnemyField
 from .globals import Th07Globals
 from .items import ItemKind, Th07ItemField
+from .msg import StageResultPanel, Th07MsgSystem, advance_stage
 from .player import BORDER_BREAK_INVULN, BorderState, OptionMachine, Th07PlayerField
 
 #: 回放确定性: 显式 seed 时 ECL rng 用派生值(出处 old/touhou/games/th07/world.py:190)
@@ -96,6 +100,14 @@ class Th07World(World):
     # ---- ECL 接线(compose_world 装载; None = 无 ECL 数据) ----
     host: Th07EclHost | None = None
     timelines: list[TimelineRunner] = msgspec.field(default_factory=list)
+    # ---- MSG 接线(compose_world 装载; None = 无 msg 数据, 不停轴) ----
+    msg_vm: MsgExecutor | None = None
+    stage_results: StageResultPanel | None = None  # 结算面板数据(view 消费)
+    pending_next_level: bool = False  # NEXT_LEVEL 登记, 次帧帧首换关
+    msg_active: bool = False  # 帧首对话门控快照(HasCurrentMsgIdx)
+    # ---- 换关资源(compose_world 注入; advance_stage 装新关脚本用) ----
+    archive: Archive | None = None
+    resources: ResourcePaths | None = None
     # ---- 驱动 ----
     pipeline: Pipeline = msgspec.field(default_factory=Pipeline)
     rng: Rng = msgspec.field(default_factory=Rng)
@@ -117,7 +129,12 @@ class Th07World(World):
 
     # ---- 驱动 ----
     def tick(self, input: InputFrame | None = None) -> SceneSnapshot:
-        """推进一帧: 建帧上下文 →(结算订阅)→ 管线 → 帧末事件投递。"""
+        """推进一帧: (次帧帧首换关)→ 建帧上下文 →(结算订阅)→ 管线 → 帧末事件投递。"""
+        if self.pending_next_level:
+            # NEXT_LEVEL → 换关(curState=3 → GameManager 重建); 事件在帧末
+            # flush 登记, 次帧帧首切关, 避免 tick 半途换世界
+            self.pending_next_level = False
+            advance_stage(self)
         ctx = FrameContext(self.rng, input)
         self.ctx = ctx
         ctx.events.subscribe(self._settle)  # 结算先于外部消费方
@@ -243,6 +260,12 @@ class Th07SyncSystem(System[Th07World]):
         assert host is not None
         player = world.player
         g = world.th07
+        # 帧首对话门控(Gui::HasCurrentMsgIdx): 本帧射击/炸弹以此为准,
+        # msg 系统在其后步进(当帧新读的对话下帧才门控, 同旧 world.py:787)
+        world.msg_active = (
+            world.msg_vm is not None and world.msg_vm.has_current_msg_idx()
+        )
+        player.dialog_active = world.msg_active
         # 宿主快照(出处 old/touhou/games/th07/ecl_host.py:136 frame_update)
         host.ctx = ctx
         host.player_pos.set(player.pos.x, player.pos.y, 0.0)
@@ -357,8 +380,13 @@ class Th07BombSystem(System[Th07World]):
         bctx.cherry = world.th07.cherry
         bctx.cherry_start = world.th07.cherry_start
         bctx.last_enemy_hit = world.last_enemy_hit
-        # bomb/结界键 (Player.cpp:1686-1692 + UpdateBorderAndBombState 触发分支)
-        if Button.BOMB in ctx.input.pressed and not bomb.is_in_use:
+        # bomb/结界键 (Player.cpp:1686-1692 + UpdateBorderAndBombState 触发分支;
+        # 对话中不可 bomb, Player.cpp:1722 以 !HasCurrentMsgIdx 为前提)
+        if (
+            Button.BOMB in ctx.input.pressed
+            and not bomb.is_in_use
+            and not world.msg_active
+        ):
             if player.border.has_border != BorderState.NONE:
                 world._break_border()  # 有结界时按 bomb 键 = 主动破
                 world.items.remove_all_items()  # Player.cpp:1691
@@ -437,6 +465,9 @@ class Th07PlayerSystem(PlayerSystem):
         f = self.field  # world 用不上: bomb/field/shots 均构造注入
         if self.read_input:
             f.push_frame(ctx.input)
+        if f.dialog_active:
+            # 对话门控: 可移动不可射击 (Player.cpp:1616 以 !HasCurrentMsgIdx 为前提)
+            f.firing = False
         mult = self.bomb.move_speed_multiplier if self.bomb.is_in_use else 1.0
         orig = f._move
         if mult != 1.0:
@@ -450,6 +481,7 @@ class Th07PlayerSystem(PlayerSystem):
             s.focus = f.focus
             s.firing = f.firing
             s.player_state = int(f.state)
+            s.dialog_active = f.dialog_active
 
 
 class Th07ContactSystem(System[Th07World]):
@@ -528,6 +560,14 @@ def compose_world(
     shot_data = parse_sht(load_entry(arc, sht_unf))
     shot_data_focus = parse_sht(load_entry(arc, sht_foc))
     ecl_file = parse_ecl(load_entry(arc, res.ecl_file.format(n=stage_no)))
+    # 对话系统: msg{stage}.dat (Gui::LoadMsg); 缺资源则不留 VM(不停轴)
+    msg_vm: MsgExecutor | None = None
+    try:
+        msg_vm = MsgExecutor(
+            parse_msg(load_entry(arc, res.msg_file.format(n=stage_no)))
+        )
+    except KeyError:
+        pass
 
     # 回放确定性(出处 old/touhou/games/th07/world.py:190): 显式 seed 时
     # 主 rng 用 seed, ECL rng 用派生值
@@ -615,6 +655,9 @@ def compose_world(
         options=OptionMachine(rotating=(character == 5)),  # 咲夜B 旋转子机
         host=host,
         timelines=timelines,
+        msg_vm=msg_vm,
+        archive=arc,
+        resources=res,
         rng=Rng(main_seed),
         initial_bombs=shot_data.initial_bombs,
         cherry_penalty_multiplier=shot_data.cherry_penalty_multiplier,
@@ -626,15 +669,18 @@ def compose_world(
     host.on_set_boss = world._on_set_boss
     host.on_begin_spellcard = world._on_begin_spellcard
     host.on_end_spellcard = world._on_end_spellcard
+    host.msg_vm = msg_vm
+    host.msg_character = character // 2  # MsgRead(arg0 + character*10)
     player.on_border_break = world._break_border
 
-    # ---- 管线(engine 件槽位对齐旧 world.py tick 帧序; msg 留待) ----
+    # ---- 管线(engine 件槽位对齐旧 world.py tick 帧序) ----
     p: Pipeline = Pipeline()
     p.add(Slot.LOGIC, Th07SyncSystem())
     p.add(Slot.LOGIC, Th07BombSystem())
     p.add(Slot.LOGIC, BombClearSystem(bomb, bullets))
     p.add(Slot.LOGIC, BombDamageSystem(enemies, bomb))
     p.add(Slot.LOGIC, Th07TimelineSystem())
+    p.add(Slot.LOGIC, Th07MsgSystem())
     p.add(Slot.LOGIC, Th07EnemyEclSystem(enemies, host))
     p.add(Slot.LOGIC, Th07BorderSystem())
     p.add(Slot.LOGIC, Th07PlayerSystem(player, shots, bomb))

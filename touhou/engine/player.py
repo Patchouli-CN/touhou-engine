@@ -86,6 +86,7 @@ class PlayerField(msgspec.Struct):
     respawn_timer: int = 0
     initial_respawn_timer: int = 30  # 决死窗/死亡倒计时初值(.sht 注入)
     bullet_grace_period: int = 0
+    dialog_active: bool = False  # 对话框中(射击/炸弹门控 + 持续弹压计时)
     hitbox_radius: float = 2.0  # 判定盒半宽(作品按 .sht 注入, 半宽 = radius/2)
     graze_radius: float = 24.0  # 擦弹盒半宽(同上)
     bounds: tuple[Vec2, Vec2] = msgspec.field(

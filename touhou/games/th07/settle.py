@@ -17,6 +17,7 @@ from ...engine.enemies import EnemyDamaged, EnemyDied, EnemyTimerCallback
 from ...engine.events import Event
 from ...engine.items import STATE_ATTRACT, ItemCollected, ItemDropped
 from ...engine.lasers import LaserGraze, LaserHit
+from ...engine.msg import MsgNextLevel, MsgStageResults
 from ...engine.player import (
     PlayerDeathSettled,
     PlayerDied,
@@ -28,6 +29,7 @@ from ...utils.math import Vec2
 from .bomb import BOMB_SOUNDS, SE_BOMB
 from .data import DROP_TABLE, FULL_POWER, FULL_POWER_SCORE_BONUS
 from .items import ItemKind, next_needed_point_items_for_extend
+from .msg import apply_next_level, apply_stage_results
 from .player import settle_death
 
 if TYPE_CHECKING:
@@ -390,6 +392,19 @@ def _on_grace_clear(w: Th07World, ev: PlayerGraceClear) -> None:
     w.lasers.remove_all(skip_flag4=True)
 
 
+# ---- msg(对话控制事件 → 结算/换关, 作品语义在 msg.py) ----
+
+
+def _on_msg_stage_results(w: Th07World, ev: MsgStageResults) -> None:
+    """MSG_STAGERESULTS: 过关结算(快照/奖励入账/面板数据)。"""
+    apply_stage_results(w)
+
+
+def _on_msg_next_level(w: Th07World, ev: MsgNextLevel) -> None:
+    """MSG_NEXT_LEVEL: 登记次帧帧首换关(分流规则见 msg.py)。"""
+    apply_next_level(w)
+
+
 #: 事件类 → 结算 handler(未登记的事件类忽略); handler 按 Any 收(同指令 VM 表)
 _HANDLERS: dict[type[Event], Callable[[Th07World, Any], None]] = {
     EnemyDamaged: _on_enemy_damaged,
@@ -410,6 +425,8 @@ _HANDLERS: dict[type[Event], Callable[[Th07World, Any], None]] = {
     PlayerGraceClear: _on_grace_clear,
     BombStarted: _on_bomb_started,
     BombClearedBullet: _on_bomb_cleared_bullet,
+    MsgStageResults: _on_msg_stage_results,
+    MsgNextLevel: _on_msg_next_level,
 }
 
 

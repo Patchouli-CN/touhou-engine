@@ -85,8 +85,9 @@ def test_spellcard_lifecycle() -> None:
     assert w.th07.spell_cards_captured == 0  # 符卡中死过, 不算捕获
     assert w.globals.score > 0
     assert _counts(log)["ScoreChanged"] > 0  # 计分事件流在出
-    # 符卡击破后进入下一段(血条重置, 无进行中符卡)
-    assert w.boss is not None and w.boss.is_active == 0
+    # 中超击破后时间轴推进到尾王前置对话(msg 接线后对话门控停轴, 尾王尚未入场)
+    assert w.boss is None
+    assert w.msg_active
 
 
 def test_deterministic_replay() -> None:

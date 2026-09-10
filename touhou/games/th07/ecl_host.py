@@ -20,6 +20,7 @@ from ...engine.ecl.state import EnemySpawn, Vec3
 from ...engine.enemies import Enemy, EnemyField, EnemySpawned
 from ...engine.items import ItemField
 from ...engine.lasers import Laser, LaserField, LaserState
+from ...engine.msg import MsgExecutor
 from ...engine.rng import Rng
 from ...schemas.ecl import (
     AddLaserAngle,
@@ -180,6 +181,9 @@ class Th07EclHost(EclHost):
         self.global_ints: list[int] = [0] * 4  # GLOBAL_INT_1..4(跨机共享)
         self.global_floats: list[float] = [0.0] * 4
         self.last_msg_id = -1
+        # 消息系统(world 装入): msg_vm 为 None 时维持旧行为(仅记录, 不停轴)
+        self.msg_vm: MsgExecutor | None = None
+        self.msg_character = 0  # C g_GameManager.character (0=灵梦 1=魔理沙 2=咲夜)
         self.boss_health: tuple[int, int, int, int] = (0, 0, 0, 0)
         self.boss_life_markers = 0
         self.framerate_multiplier = 1.0  # ex10/11 游戏速度(world 每帧同步给各 VM)
@@ -917,11 +921,39 @@ class Th07EclHost(EclHost):
             boss.enemy.run_interrupt = interrupt
 
     def msg_read(self, msg_id: int) -> None:
-        # msg 系统不在本单(对话留待); 只记录, 不停轴(同旧 msg_vm=None 行为)
+        """时间轴 op8 (EnemyManager.cpp:332): MsgRead(arg0 + character*10)。
+
+        C MsgRead 同时清场: RemoveAllBullets(1) → 弹转弹消点、
+        RemoveAllEnemies(0,0)(跳过 boss)、RemoveAllItems()。
+        """
+        # 出处 old/touhou/games/th07/ecl_host.py:454
         self.last_msg_id = msg_id
+        vm = self.msg_vm
+        if vm is None:
+            return
+        vm.read(msg_id + self.msg_character * 10)
+        if vm.has_current_msg_idx():
+            self.remove_all_bullets(True)  # 弹转道具…
+            self.remove_all_enemies(0, 0)  # …随即被下一行清掉(同 C 顺序)
+            self.items.remove_all_items()
 
     def msg_wait(self) -> bool:
-        return False
+        """时间轴 op9: 消息未读完则停轴 (Gui::MsgWait, 含 APPEAR_ENEMY 放行窗)。"""
+        if self.msg_vm is None:
+            return False
+        return self.msg_vm.msg_wait()
+
+    def load_stage(self, ecl_file: EclFile) -> None:
+        """换关装新 ECL(EclManager.Load): 换脚本 + 清账本(field 引用不动)。"""
+        self.file = ecl_file
+        self.extras.clear()
+        self.machine_enemy.clear()
+        self.bosses = [None] * 8
+        self.global_ints = [0] * 4
+        self.global_floats = [0.0] * 4
+        self.boss_health = (0, 0, 0, 0)
+        self.boss_life_markers = 0
+        self.last_msg_id = -1
 
     def set_power(self, value: int) -> None:
         if self.on_set_power is not None:

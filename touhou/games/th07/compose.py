@@ -11,6 +11,7 @@ from ...engine import (
     check_assembly,
 )
 from ...engine.ecl import EclMachine
+from ...engine.msg import MsgExecutor
 from . import data
 from .ecl_handlers import ECL_EXTRA_HANDLERS
 from .ecl_host import Th07EclHost
@@ -26,7 +27,7 @@ TITLE = "東方妖々夢 〜 Perfect Cherry Blossom"
 
 
 def compose(data_path: str = DATA_PATH) -> GameAssembly:
-    """拼出 th07 的可运行装配(世界/ECL 执行器/指令表全绑定; MSG/渲染留待)。"""
+    """拼出 th07 的可运行装配(世界/ECL/MSG 执行器/指令表全绑定; 渲染留待)。"""
     assembly = GameAssembly(
         name="th07",
         title=TITLE,
@@ -56,6 +57,7 @@ def compose(data_path: str = DATA_PATH) -> GameAssembly:
             anm_version=2,
             ecl_machine=EclMachine,
             ecl_host=Th07EclHost,
+            msg_executor=MsgExecutor,
             ecl_instr_set=ECL_INSTR_SET,
             ecl_extra_handlers=ECL_EXTRA_HANDLERS,
             ecl_tl_handlers=TL_HANDLERS,

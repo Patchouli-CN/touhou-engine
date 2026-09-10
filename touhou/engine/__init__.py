@@ -118,6 +118,16 @@ from .lasers import (
     LaserState,
     laser_hits_player,
 )
+from .msg import (
+    MsgExecutor,
+    MsgInput,
+    MsgLineState,
+    MsgMusicChange,
+    MsgMusicFadeout,
+    MsgNextLevel,
+    MsgPortraitState,
+    MsgStageResults,
+)
 from .player import (
     BULLET_GRACE_PERIOD,
     RESPAWN_INVULN,
@@ -248,6 +258,14 @@ __all__ = [
     "LaserSpawned",
     "LaserState",
     "MenuAction",
+    "MsgExecutor",
+    "MsgInput",
+    "MsgLineState",
+    "MsgMusicChange",
+    "MsgMusicFadeout",
+    "MsgNextLevel",
+    "MsgPortraitState",
+    "MsgStageResults",
     "Pipeline",
     "PlayerDeathSettled",
     "PlayerDied",
