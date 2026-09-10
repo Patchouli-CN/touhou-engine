@@ -10,6 +10,7 @@ from ..world import Th07World, compose_world
 from .backend import PygameBackend
 from .game_scene import GameScene
 from .menu_vms import MenuVmSet
+from .musicroom import MusicRoomScene
 from .option import OptionScene
 from .scene import run_scenes
 from .title import MenuMemory, StartRequest, TitleScene
@@ -20,6 +21,7 @@ SCORE_PATH = "score.json"
 #: 配置落盘位置(原版 th07.cfg 的 JSON 简化版, games/th07/config.py)
 CONFIG_PATH = "config.json"
 
+_MENU_MUSIC_ROOM = 5  # MENU_CURSOR_PREINPUT_MUSICROOM (MainMenu.hpp:47)
 _MENU_OPTION = 6  # MENU_CURSOR_PREINPUT_OPTIONS (MainMenu.hpp:48)
 
 
@@ -65,9 +67,18 @@ def run_app(
             memory,
             anm_version=assembly.scripts.anm_version,
             on_start=make_game,
-            submenus={_MENU_OPTION: make_option},
+            submenus={_MENU_MUSIC_ROOM: make_musicroom, _MENU_OPTION: make_option},
             vm_set=vm_set,
             cursor=cursor,
+        )
+
+    def make_musicroom(title: TitleScene) -> MusicRoomScene:
+        return MusicRoomScene(
+            archive,
+            anm_version=assembly.scripts.anm_version,
+            # Music Room 是独立 chain(进它时 MainMenu 已销毁), 返回重建主菜单,
+            # 光标停 Music Room(MainMenu.cpp:2630-2631)
+            on_exit=lambda: make_title(cursor=_MENU_MUSIC_ROOM),
         )
 
     def make_option(title: TitleScene) -> OptionScene:

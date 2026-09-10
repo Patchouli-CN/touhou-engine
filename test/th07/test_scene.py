@@ -190,3 +190,42 @@ def test_run_app_option_chain(tmp_path) -> None:
     assert backend.sounds.count(12) == 8
     assert backend.sounds.count(10) == 2
     assert backend.sounds.count(11) == 1
+
+
+@needs_data
+def test_run_app_musicroom_chain(tmp_path) -> None:
+    """run_app 全链: 主菜单→Music Room→选曲确认→返回(光标停 Music Room)→Quit。"""
+    from touhou.games.th07.compose import compose
+    from touhou.games.th07.view.app import run_app
+
+    def press(b: Button) -> InputFrame:
+        return InputFrame(held=frozenset({b}), pressed=frozenset({b}))
+
+    down = press(Button.DOWN)
+    inputs: list[InputFrame | None] = (
+        [_IDLE] * 11
+        + [down] * 4  # 0→2(Extra 锁定滑过)→3→4→5(Music Room)
+        + [press(Button.SHOT)]  # 进 Music Room
+        + [_IDLE] * 9  # 8 帧输入门 + 开门帧(MusicRoom.cpp:35-38)
+        + [down]  # 光标 0→1
+        + [press(Button.SHOT)]  # 选中曲目(播放 hook, 实际发声留待)
+        + [press(Button.BOMB)]  # 回主菜单(光标停 Music Room=5)
+        + [_IDLE] * 11  # 主菜单确认门
+        + [down] * 2  # 5→6→7(Exit)
+        + [press(Button.SHOT)]  # Quit
+        + [_IDLE] * 60  # 离场 60 帧后退出
+    )
+    backend = _StubBackend(inputs)
+    run_app(
+        compose(),
+        seed=42,
+        score_path=str(tmp_path / "score.json"),
+        config_path=str(tmp_path / "config.json"),
+        backend=backend,
+    )
+    assert not backend._inputs  # 输入序列正好喂完
+    assert backend.closed
+    # SE: 移动 12 ×6(菜单 4 + 返回后 2), 确认 10 ×2; Music Room 全程无 SE
+    assert backend.sounds.count(12) == 6
+    assert backend.sounds.count(10) == 2
+    assert 11 not in backend.sounds
