@@ -150,6 +150,7 @@ from .player import (
     PlayerState,
     PlayerSystem,
 )
+from .render import RenderBackend
 from .rng import Rng
 from .score_store import ScoreStore, default_score, make_highscore_record
 from .shots import (
@@ -291,6 +292,7 @@ __all__ = [
     "PlayerShot",
     "PlayerState",
     "PlayerSystem",
+    "RenderBackend",
     "ResourcePaths",
     "Rng",
     "SaveSemantics",

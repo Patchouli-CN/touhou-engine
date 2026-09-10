@@ -6,7 +6,12 @@ import msgspec
 
 
 class SpriteDraw(msgspec.Struct, frozen=True):
-    """一个精灵绘制项, image 为资源键(由后端解析)。"""
+    """一个精灵绘制项, image 为资源键(由后端解析)。
+
+    x/y 是中心锚点; rotation 弧度制屏幕顺时针为正(D3D LH +z 同向);
+    最终缩放 = (scale*scale_x, scale*scale_y), 负值即翻转;
+    blend_mode 0=普通 1=加算(AnmManager SetRenderStateForVm)。
+    """
 
     image: str
     x: float
@@ -15,6 +20,10 @@ class SpriteDraw(msgspec.Struct, frozen=True):
     rotation: float = 0.0
     scale: float = 1.0
     alpha: int = 255
+    scale_x: float = 1.0
+    scale_y: float = 1.0
+    color: tuple[int, int, int] = (255, 255, 255)
+    blend_mode: int = 0
 
 
 class TextDraw(msgspec.Struct, frozen=True):

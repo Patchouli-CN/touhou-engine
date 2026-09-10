@@ -76,6 +76,7 @@ from .items import ItemKind, Th07ItemField
 from .msg import StageResultPanel, Th07MsgSystem, advance_stage
 from .player import BORDER_BREAK_INVULN, BorderState, OptionMachine, Th07PlayerField
 from .shot_cbs import SAKUYA_HOMING_WINDOW, Th07ShotHooks
+from .snapshot import Th07SnapshotSystem
 
 #: 回放确定性: 显式 seed 时 ECL rng 用派生值(出处 old/touhou/games/th07/world.py:190)
 _DEFAULT_SEED = 0x5EED
@@ -776,5 +777,6 @@ def compose_world(
     p.add(Slot.COLLISION, Th07BorderClearSystem())
     p.add(Slot.COLLISION, ItemCollectSystem(items))
     p.add(Slot.COLLISION, LaserCollisionSystem(lasers))
+    p.add(Slot.OUTPUT, Th07SnapshotSystem(anm_version=assembly.scripts.anm_version))
     world.pipeline = p
     return world
