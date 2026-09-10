@@ -7,6 +7,7 @@ from collections.abc import Callable
 from ....engine import Event, InputFrame, SceneSnapshot
 from ....engine.input import Button
 from .. import result as result_flow
+from ..replay import ReplayRecorder
 from ..world import Th07World
 from .scene import Scene
 
@@ -14,6 +15,8 @@ from .scene import Scene
 class GameScene(Scene):
     """一局对局: Esc 暂停; 世界出结算(result)即结束, next_scene 交给装配处。
 
+    recorder 注入即录制(ReplayManager::OnUpdate 每帧一记, ReplayManager.cpp:33-77):
+    每个喂给 tick 的 InputFrame 录一码, 过面自动打锚点, 结算时由装配处落盘。
     留待: GameOver 续关画面(world 冻结等 view, 续关单接 continue_play/
     finalize_game_over); 6 面结局播放(现直接 finish_ending 跳过, 结局单接)。
     """
@@ -26,14 +29,18 @@ class GameScene(Scene):
         *,
         on_exit: Callable[[], Scene | None],
         on_result: Callable[[Th07World], None] | None = None,
+        recorder: ReplayRecorder | None = None,
     ) -> None:
         super().__init__()
         self.world = world
         self._on_exit = on_exit
         self._on_result = on_result
+        self._recorder = recorder
         self._events: list[Event] = []
         world.subscribers.append(self._events.append)
         self._snapshot = world.tick(InputFrame())  # 首帧快照(同原 run_game)
+        if recorder is not None:
+            recorder.record_tick(world, InputFrame())  # 首帧也录(回放逐帧对齐)
         self._frame_sounds: list[int] = []
         self.paused = False
 
@@ -44,6 +51,8 @@ class GameScene(Scene):
             self._frame_sounds = []
             return
         self._snapshot = self.world.tick(inp)
+        if self._recorder is not None:
+            self._recorder.record_tick(self.world, inp)
         self._frame_sounds = list(self.world.frame_sounds)
         w = self.world
         if w.ending is not None:

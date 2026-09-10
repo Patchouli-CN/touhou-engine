@@ -132,7 +132,7 @@ class TitleScene(MenuScene):
     """标题/主菜单/选择画面: PRE_INPUT → 难度 → 机体 → 装备 → (练习选面) → 开局或 Quit。
 
     submenus: 主菜单项 → scene 工厂(吃当前 TitleScene, 取共享 VM 阵列用);
-    已接 PlayerData/MusicRoom/Option; Replay 后续单往这个表里挂(空项按下无反应)。
+    已接 Replay/PlayerData/MusicRoom/Option(空项按下无反应)。
     practice_mode: 练习对局结束回标题时置真 = C++ isPracticeMode
     (MainMenu.cpp:2637-2643), 主菜单 INIT 直跳练习选择链, 落到选面页。
     """
@@ -235,7 +235,8 @@ class TitleScene(MenuScene):
             self._selected = -1
             self._substate = 1
             self._demo_frames = 0
-            # replay 直跳分支(:233-245)留待 Replay 单
+            # replay 直跳分支(:233-245 对局/回放回来 g_GameManager.replay=1 时
+            # 主菜单 INIT 直跳 SELECT_REPLAY): 本作由回放 scene 出口直接回列表
             if self._is_practice_mode:
                 # 练习对局回来: 直跳练习难度页, 沿选择链落到选面页(:246-257)
                 self._set_menu_state(MenuState.PRACTICE_SELECT_DIFFICULTY)
@@ -254,7 +255,8 @@ class TitleScene(MenuScene):
             if self._inp.held:
                 self._demo_frames = 0
             if self._demo_frames > 900:
-                # demo 播放(data/demo/demorpyN.rpy)留待 Replay 单(MainMenu.cpp:286-322)
+                # demo 播放(MainMenu.cpp:286-322): 原版播 data/demo/demorpyN.rpy
+                # (原版二进制格式, 与本引擎 sim 不兼容), 不接, 只重置计数
                 self._demo_frames = 0
             if self._selected != self.cursor:
                 mv.cur_desc = mv.desc_vms[self.cursor]
@@ -291,7 +293,7 @@ class TitleScene(MenuScene):
         if cursor == _MENU_EXTRA_START:
             if not self._extra_unlocked:
                 # 未解锁 confirm 落空跌进 REPLAY case(:386-387 无 break);
-                # 光标停不上来实际不可达, Replay 单再处理
+                # 光标停不上来实际不可达, 按无反应处理
                 return False
             self._practice = False  # :375
             self.cursor = int(self.memory.default_difficulty == 5)  # :376
@@ -317,7 +319,7 @@ class TitleScene(MenuScene):
             return False
         factory = self._submenus.get(cursor)
         if factory is None:
-            return False  # Replay 留待后续单
+            return False  # 未接项按下无反应
         if mv.cur_desc is not None:
             mv.cur_desc.pending_interrupt = 2
         self._next = factory(self)
