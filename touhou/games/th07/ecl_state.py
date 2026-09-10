@@ -48,7 +48,9 @@ class BulletShooter(msgspec.Struct):
     sound_idx: int = 0
     sound_override: int = 0
     commands: list[BulletCommandData] = msgspec.field(
-        default_factory=lambda: [BulletCommandData() for _ in range(SHOOTER_COMMAND_SLOTS)]
+        default_factory=lambda: [
+            BulletCommandData() for _ in range(SHOOTER_COMMAND_SLOTS)
+        ]
     )
 
     def cooked_commands(self) -> tuple[BulletCommand, ...]:

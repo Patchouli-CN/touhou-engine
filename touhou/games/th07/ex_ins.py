@@ -34,7 +34,9 @@ def _arg1(instr: EclInstr | None, default: int = 0) -> int:
     return args[0] if args else default
 
 
-def _ex0_set_pos_to_boss(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex0_set_pos_to_boss(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:55 ExInsSetPosToBoss
     boss = host.bosses[_arg1(instr) & 7]
     if boss is None:
@@ -46,7 +48,9 @@ def _ex0_set_pos_to_boss(host: Th07EclHost, m: EclMachine, instr: EclInstr | Non
     e.disable_movement = 1
 
 
-def _ex1_alice_curve_bullets(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex1_alice_curve_bullets(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:66 ExInsAliceCurveBullets(同帧震屏 (30,12,0) 后续单接)
     sel = _arg1(instr)
     rng = m.rng
@@ -88,7 +92,9 @@ def _ex1_alice_curve_bullets(host: Th07EclHost, m: EclMachine, instr: EclInstr |
         b.state2 = 1
 
 
-def _ex2_turn_bullets_into_other_bullets(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex2_turn_bullets_into_other_bullets(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:127 ExInsTurnBulletsIntoOtherBullets(sel==0 震屏 (32,12,0) 不接)
     sel = _arg1(instr)
     radius = (128.0, 192.0, 256.0, 999.0)[sel & 3]
@@ -120,7 +126,9 @@ def _ex2_turn_bullets_into_other_bullets(host: Th07EclHost, m: EclMachine, instr
         b.dead = True
 
 
-def _ex4_despawn_large_bullet_and_save_pos(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex4_despawn_large_bullet_and_save_pos(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:196 ExInsDespawnLargeBulletAndSavePos
     ctx = m.current
     ctx.float_vars[_FV] = -999.0
@@ -133,7 +141,9 @@ def _ex4_despawn_large_bullet_and_save_pos(host: Th07EclHost, m: EclMachine, ins
             break
 
 
-def _ex5_copy_main_boss_movement(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex5_copy_main_boss_movement(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:227 ExInsCopyMainBossMovement
     boss = host.bosses[0]
     if boss is None:
@@ -144,7 +154,9 @@ def _ex5_copy_main_boss_movement(host: Th07EclHost, m: EclMachine, instr: EclIns
     e.move_angular_velocity = boss.enemy.move_angular_velocity
 
 
-def _ex6_split_bullets_or_shoot_backwards(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex6_split_bullets_or_shoot_backwards(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:242 ExInsSplitBulletsOrShootBackwards
     sel = _arg1(instr)
     diff = host.difficulty
@@ -215,7 +227,9 @@ def _point_in_rotated_rect(
     return cx - sx / 2.0 <= rx <= cx + sx / 2.0 and cy - sy / 2.0 <= ry <= cy + sy / 2.0
 
 
-def _ex7_reflect_bullets_from_lasers(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex7_reflect_bullets_from_lasers(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:366 ExInsReflectBulletsFromLasers
     e = m.enemy
     for i, laser in enumerate(host.lasers.lasers):
@@ -248,7 +262,9 @@ def _ex7_reflect_bullets_from_lasers(host: Th07EclHost, m: EclMachine, instr: Ec
             b.size = bullet_type_size(5)
 
 
-def _ex8_shoot_bullets_along_laser(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex8_shoot_bullets_along_laser(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:454 ExInsShootBulletsAlongLaser
     rng = m.rng
     diff = host.difficulty
@@ -294,12 +310,16 @@ def _ex8_shoot_bullets_along_laser(host: Th07EclHost, m: EclMachine, instr: EclI
             b.state2 = -1 if diff < 2 else i + 1
 
 
-def _ex9_effect1e_accel(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex9_effect1e_accel(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:549 ExInsEffect1eAccel —— 特效系统表现, 无逻辑效果(震屏 (80,8,0) 不接)
     pass
 
 
-def _ex10_youmu_set_game_speed(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex10_youmu_set_game_speed(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:556 ExInsYoumuSetGameSpeed(spellcardVms/换帧为表现侧, 不接)
     mult = 1.0 / float(_arg1(instr, 1) or 1)
     host.framerate_multiplier = mult
@@ -308,7 +328,9 @@ def _ex10_youmu_set_game_speed(host: Th07EclHost, m: EclMachine, instr: EclInstr
         b.vel = b.vel * mult
 
 
-def _ex11_youmu_restore_game_speed(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex11_youmu_restore_game_speed(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:585 ExInsYoumuRestoreGameSpeed(终值恒 1.0)
     mult = host.framerate_multiplier
     fps = 1.0 / mult if mult else 1.0
@@ -368,7 +390,9 @@ def _burst_large_bullets(
         b.dead = True
 
 
-def _ex12_burst_large_bullets(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex12_burst_large_bullets(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:621: 数量 10/18/22/25, y 窗 ±64(H/L ±48)
     _burst_large_bullets(
         host,
@@ -380,7 +404,9 @@ def _ex12_burst_large_bullets(host: Th07EclHost, m: EclMachine, instr: EclInstr 
     )
 
 
-def _ex13_youmu_curve_bullets_below(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex13_youmu_curve_bullets_below(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:696 ExInsYoumuCurveBulletsBelow
     # (C 用弹槽下标 i 的奇偶选转向; Python 弹池无空槽, 用存活序号代替)
     e = m.enemy
@@ -403,7 +429,9 @@ def _ex13_youmu_curve_bullets_below(host: Th07EclHost, m: EclMachine, instr: Ecl
         b.state2 = 1
 
 
-def _ex14_youmu_redirect_bullets_to_player(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex14_youmu_redirect_bullets_to_player(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:725 ExInsYoumuRedirectBulletsToPlayer(BombEffects 不接)
     for b in host.bullets.alive():
         if b.state2 != 1:
@@ -421,12 +449,16 @@ def _ex14_youmu_redirect_bullets_to_player(host: Th07EclHost, m: EclMachine, ins
         b.state2 = 2
 
 
-def _ex15_flash_screen(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex15_flash_screen(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:751 ExInsFlashScreen —— BombEffects 闪屏, 纯视觉不接
     pass
 
 
-def _ex16_yuyuko_transform_butterfly_bullets(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex16_yuyuko_transform_butterfly_bullets(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:757 ExInsYuyukoTransformButterflyBullets
     # 蝶弹 = sprite 8(活动 sprite 632-639, etama.anm 实测)
     speed = m.current.float_vars.get(_FV + 1, 0.0)
@@ -447,7 +479,9 @@ def _ex16_yuyuko_transform_butterfly_bullets(host: Th07EclHost, m: EclMachine, i
         host.fire_temp_shooter_at(m, props, Vec3(b.pos.x, b.pos.y, 0.0))
 
 
-def _ex17_yuyuko_butterfly_spawn_enemy(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex17_yuyuko_butterfly_spawn_enemy(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:791 ExInsYuyukoButterflySpawnEnemy(BombEffects 不接)
     ctx = m.current
     angle_offset = -math.pi
@@ -475,7 +509,9 @@ def _ex17_yuyuko_butterfly_spawn_enemy(host: Th07EclHost, m: EclMachine, instr: 
             b.dead = True
 
 
-def _ex18_yuyuko_count_butterfly_bullets(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex18_yuyuko_count_butterfly_bullets(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:829 ExInsYuyukoCountButterflyBullets
     n = 0
     for b in host.bullets.alive():
@@ -484,17 +520,23 @@ def _ex18_yuyuko_count_butterfly_bullets(host: Th07EclHost, m: EclMachine, instr
     m.current.int_vars[_IV] = n
 
 
-def _ex19_yuyuko_fade_out_music(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex19_yuyuko_fade_out_music(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:919 —— Supervisor::FadeOutMusic(3.0), BGM 事件后续单接
     pass
 
 
-def _ex20_yuyuko_play_resurrection_bgm(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex20_yuyuko_play_resurrection_bgm(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:925 —— PlayLoadedAudio(2)/"bgm/th07_13b.mid", BGM 事件后续单接
     pass
 
 
-def _ex21_burst_large_bullets2(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex21_burst_large_bullets2(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:853: 数量恒 15, y 窗 Hard ±128, 其余 ±180
     _burst_large_bullets(
         host,
@@ -506,7 +548,9 @@ def _ex21_burst_large_bullets2(host: Th07EclHost, m: EclMachine, instr: EclInstr
     )
 
 
-def _ex22_spawn_bullets_with_dir_change(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex22_spawn_bullets_with_dir_change(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:936 ExInsSpawnBulletsWithDirChange
     e = m.enemy
     if e.timer % 3 == 0:
@@ -540,7 +584,9 @@ def _ex22_spawn_bullets_with_dir_change(host: Th07EclHost, m: EclMachine, instr:
         host.fire_temp_shooter_at(m, props, Vec3(b.pos.x, b.pos.y, 0.0))
 
 
-def _ex23_spawn_bullets_with_dir_change2(host: Th07EclHost, m: EclMachine, instr: EclInstr | None) -> None:
+def _ex23_spawn_bullets_with_dir_change2(
+    host: Th07EclHost, m: EclMachine, instr: EclInstr | None
+) -> None:
     # EnemyEclInstr.cpp:1005 ExInsSpawnBulletsWithDirChange2
     e = m.enemy
     if e.timer % 3 == 2:

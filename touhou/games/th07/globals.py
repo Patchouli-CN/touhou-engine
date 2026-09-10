@@ -75,9 +75,7 @@ class Th07Globals(msgspec.Struct):
 
     def increase_cherry_max(self, x: int) -> None:
         """CherryMax += x, 封顶 cherryStart+9999990。"""
-        self.cherry_max = min(
-            self.cherry_max + x, self.cherry_start + CHERRY_MAX_RANGE
-        )
+        self.cherry_max = min(self.cherry_max + x, self.cherry_start + CHERRY_MAX_RANGE)
 
     def subtract_cherry_drain(self, drain: int) -> None:
         """炸弹樱点消耗, 封底 cherryStart(PlayerBombInfo::SubtractCherryDrain)。"""

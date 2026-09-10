@@ -74,7 +74,9 @@ class Border(msgspec.Struct):
         self.has_border = BorderState.ACTIVE
         return True
 
-    def tick(self, *, cherry: int, cherry_start: int, cherry_max: int) -> tuple[int, BorderBreakResult | None]:
+    def tick(
+        self, *, cherry: int, cherry_start: int, cherry_max: int
+    ) -> tuple[int, BorderBreakResult | None]:
         """每帧: 冷却递减 + cherryPlus 倒计时公式; 归零自然破。
 
         cherryPlus = cherryStart + invuln*50000/borderTimer (C++ i32 乘除,
@@ -100,7 +102,9 @@ class Border(msgspec.Struct):
         self, *, cherry: int, cherry_start: int, cherry_max: int
     ) -> BorderBreakResult:
         """Player::BreakBorderNaturally: +10000 上限/樱点, 得分 (cherry-cherryStart)*10。"""
-        cherry_max = min(cherry_max + BORDER_CHERRY_GAIN, cherry_start + CHERRY_MAX_RANGE)
+        cherry_max = min(
+            cherry_max + BORDER_CHERRY_GAIN, cherry_start + CHERRY_MAX_RANGE
+        )
         cherry = min(cherry + BORDER_CHERRY_GAIN, cherry_max)
         score = (cherry - cherry_start) * 10
         self.has_border = BorderState.NONE
@@ -177,7 +181,9 @@ class OptionMachine(msgspec.Struct):
     option_angle: float = OPTION_ANGLE_CENTER
     options: list[Vec2] = msgspec.field(default_factory=list)
 
-    def step(self, pos: Vec2, velocity: Vec2, *, focus: bool, firing: bool) -> list[Vec2]:
+    def step(
+        self, pos: Vec2, velocity: Vec2, *, focus: bool, firing: bool
+    ) -> list[Vec2]:
         """推进一帧并返回两个子机的世界坐标。"""
         if self.rotating:
             self._step_angle(velocity, focus=focus, firing=firing)
@@ -304,8 +310,13 @@ class DeathSettle(msgspec.Struct):
 
 
 def settle_death(
-    *, power: float, lives: float, cherry: int, cherry_start: int,
-    cherry_penalty_multiplier: float, is_sakuya: bool,
+    *,
+    power: float,
+    lives: float,
+    cherry: int,
+    cherry_start: int,
+    cherry_penalty_multiplier: float,
+    is_sakuya: bool,
 ) -> DeathSettle:
     """死亡结算(出处 old/touhou/games/th07/player.py:290 _settle_death)。"""
     if lives > 0:

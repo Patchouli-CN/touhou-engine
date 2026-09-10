@@ -60,10 +60,11 @@ class _Entry(NamedTuple):
 
 def _cond(cls: type[EclInstr], float_: bool) -> _Entry:
     """条件跳表项(int/float 视图按 float_ 切换)。"""
+    # 字序 = [a, b, time, offset] (EclManager.cpp:1164-1166 jump: 标签)
     v = "float" if float_ else "int"
     return _Entry(
         cls,
-        (_A("a", 0, v), _A("b", 1, v), _A("dest", 2, "ri"), _A("set_time", 3, "ri")),
+        (_A("a", 0, v), _A("b", 1, v), _A("set_time", 2, "ri"), _A("dest", 3, "ri")),
     )
 
 

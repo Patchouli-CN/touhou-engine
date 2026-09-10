@@ -10,7 +10,13 @@ from ...engine import (
     ScriptSet,
     check_assembly,
 )
+from ...engine.ecl import EclMachine
 from . import data
+from .ecl_handlers import ECL_EXTRA_HANDLERS
+from .ecl_host import Th07EclHost
+from .ecl_table import ECL_INSTR_SET
+from .ecl_timeline import TL_HANDLERS
+from .world import Th07World
 
 #: 本机真实数据包路径(needs_data 测试与此同源)
 DATA_PATH = r"D:\TOUHOU_GAME\[th07] 东方妖妖梦 (日文版)\th07.dat"
@@ -20,7 +26,7 @@ TITLE = "東方妖々夢 〜 Perfect Cherry Blossom"
 
 
 def compose(data_path: str = DATA_PATH) -> GameAssembly:
-    """拼出 th07 的可运行装配; VM 执行器/模拟件未平移, 对应字段 None 占位。"""
+    """拼出 th07 的可运行装配(世界/ECL 执行器/指令表全绑定; MSG/渲染留待)。"""
     assembly = GameAssembly(
         name="th07",
         title=TITLE,
@@ -46,8 +52,16 @@ def compose(data_path: str = DATA_PATH) -> GameAssembly:
             msg_file="msg{n}.dat",
             bgm_file="thbgm.dat",
         ),
-        scripts=ScriptSet(anm_version=2),
+        scripts=ScriptSet(
+            anm_version=2,
+            ecl_machine=EclMachine,
+            ecl_host=Th07EclHost,
+            ecl_instr_set=ECL_INSTR_SET,
+            ecl_extra_handlers=ECL_EXTRA_HANDLERS,
+            ecl_tl_handlers=TL_HANDLERS,
+        ),
         save=SaveSemantics(score_file="score.dat"),
+        world=Th07World,
     )
     check_assembly(assembly)
     return assembly

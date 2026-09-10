@@ -33,6 +33,11 @@ class EventStream:
         """订阅事件(view/api/replay 消费方), 帧末逐事件回调。"""
         self._handlers.append(handler)
 
+    @property
+    def has_pending(self) -> bool:
+        """还有未投递事件(订阅者在 flush 中回产的事件需再 flush 一轮)。"""
+        return bool(self._pending)
+
     def flush(self) -> None:
         """帧末把本帧事件发给全部订阅者并清空; 单个订阅者炸记日志继续。"""
         pending, self._pending = self._pending, []

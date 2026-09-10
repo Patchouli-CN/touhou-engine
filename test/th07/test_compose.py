@@ -3,21 +3,31 @@
 from __future__ import annotations
 
 from touhou.engine import GameAssembly
+from touhou.engine.ecl import EclMachine
 from touhou.games import available_games
 from touhou.games.th07 import compose
 from touhou.games.th07.compose import DATA_PATH
+from touhou.games.th07.ecl_handlers import ECL_EXTRA_HANDLERS
+from touhou.games.th07.ecl_host import Th07EclHost
+from touhou.games.th07.ecl_table import ECL_INSTR_SET
+from touhou.games.th07.ecl_timeline import TL_HANDLERS
+from touhou.games.th07.world import Th07World
 from touhou.schemas.archive import open_archive
 
 from .conftest import needs_data
 
 
 def test_compose_produces_valid_assembly() -> None:
-    """compose() 产出的装配通过自检, 执行器字段 None 占位。"""
+    """compose() 产出的装配通过自检, 世界/ECL 执行器/指令表全绑定。"""
     asm = compose()
     assert isinstance(asm, GameAssembly)
     assert asm.name == "th07"
-    assert asm.scripts.ecl_machine is None
-    assert asm.world is None
+    assert asm.world is Th07World
+    assert asm.scripts.ecl_machine is EclMachine
+    assert asm.scripts.ecl_host is Th07EclHost
+    assert asm.scripts.ecl_instr_set is ECL_INSTR_SET
+    assert asm.scripts.ecl_extra_handlers is ECL_EXTRA_HANDLERS
+    assert asm.scripts.ecl_tl_handlers is TL_HANDLERS
 
 
 def test_rosters_and_paths() -> None:

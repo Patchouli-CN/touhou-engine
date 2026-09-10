@@ -205,9 +205,10 @@ _V0: dict[int, _Entry] = {
     0: _Entry(Nop, (_A("rest", 0, "rest"),)),
     141: _Entry(Nop, (_A("rest", 0, "rest"),)),
     1: _Entry(Stop),
-    2: _Entry(Jump, (_A("dest", 0, "ri"), _A("set_time", 1, "ri"))),
+    # 字序 = [time, offset] (EclManager.cpp:952-954 ECL_JUMP)
+    2: _Entry(Jump, (_A("set_time", 0, "ri"), _A("dest", 1, "ri"))),
     3: _Entry(
-        DecJump, (_A("dest", 0, "ri"), _A("set_time", 1, "ri"), _A("count", 2, "int"))
+        DecJump, (_A("set_time", 0, "ri"), _A("dest", 1, "ri"), _A("count", 2, "int"))
     ),
     4: _Entry(SetInt, (_A("dest", 0, "int_t"), _A("value", 1, "int"))),
     5: _Entry(SetFloat, (_A("dest", 0, "float_t"), _A("value", 1, "float"))),
