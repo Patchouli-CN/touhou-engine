@@ -71,3 +71,12 @@ def rating(stats: RunStats, *, slow_percent: float = 0.0) -> float:
 def clear_percent(stage_seconds: float) -> float:
     """由通关用时换算通关率(基于规格中的时间基准)。"""
     return min(0.99, stage_seconds * 60.0 / 180621.0)
+
+
+def practice_pscr_key(difficulty: int, shot: int, stage_no: int) -> str:
+    """练习模式每面 pscr 键(C++ PSCR[shot][stage][difficulty], MainMenu.cpp:2364-2368)。
+
+    engine ScoreStore.pscr 只有 "难度,机体" 两轴键; 练习的每面成绩用三轴
+    扩展键直接读写 pscr 字典(JSON 读写对任意合法键值往返, 引擎能力内)。
+    """
+    return f"{int(difficulty)},{int(shot)},{int(stage_no)}"

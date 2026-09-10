@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from ...engine.score_store import make_highscore_record
 from .ending import generic_ending, load_ending
-from .results import RunStats, clear_percent, rating
+from .results import RunStats, clear_percent, practice_pscr_key, rating
 
 if TYPE_CHECKING:
     from .world import Th07World  # 仅类型检查期(运行时本模块被 world/msg 引用)
@@ -52,12 +52,13 @@ def finish_ending(w: Th07World) -> None:
 
 
 def continue_available(w: Th07World) -> bool:
-    """续关菜单是否可出现 (AsciiManager.cpp:839-846 的门控: 次数尽/Extra 跳过)。"""
+    """续关菜单是否可出现 (AsciiManager.cpp:839-846 门控: 次数尽/Extra 跳过; 练习无续关直进结算 :826-832)。"""
     # 出处 old/touhou/games/th07/world.py:1261
     return (
         w.game_over
         and w.result is None
         and w.difficulty < 4
+        and not w.practice
         and w.th07.num_retries < w.max_retries
     )
 
@@ -114,6 +115,7 @@ def final_result(
 
     slow_percent: 固定 60fps 下恒 0(无减速统计), 参数仅留接口。
     name: 入榜记录名; None = 带出 LSNM(store.last_name)。
+    练习模式(w.practice): 不入榜/不记通关, 改记每面 pscr 最高分。
     幂等: 一局只结算一次(重复调用返回缓存, 不重复入榜/计数);
     落盘由调用方(view 结算画面确认时)负责。
     """
@@ -141,24 +143,35 @@ def final_result(
         play_time_frames=w.frame,
     )
     rank_value = rating(stats, slow_percent=slow_percent)
-    rec = make_highscore_record(
-        w.globals.score,
-        w.character,
-        w.difficulty,
-        w.stage_no,
-        name=name,
-        num_retries=g.num_retries,
-    )
-    pos = w.store.insert_score(rec)
-    if cleared:
-        # CLRD: currentStage-1 = 通过的面数, 取 max (GameManager.cpp 过关时)
-        w.store.record_clear(w.character, w.difficulty, w.stage_no, g.num_retries)
+    pos = -1
+    if w.practice:
+        # 练习结算(ResultScreen.cpp:2603-2615 PRACTICE_END): 不入榜/不记通关,
+        # 每面 pscr 最高分取 max
+        p = w.store.pscr.setdefault(
+            practice_pscr_key(w.difficulty, w.character, w.stage_no),
+            {"play_count": 0, "highscore": 0},
+        )
+        if p["highscore"] < w.globals.score:
+            p["highscore"] = w.globals.score
+    else:
+        rec = make_highscore_record(
+            w.globals.score,
+            w.character,
+            w.difficulty,
+            w.stage_no,
+            name=name,
+            num_retries=g.num_retries,
+        )
+        pos = w.store.insert_score(rec)
+        if cleared:
+            # CLRD: currentStage-1 = 通过的面数, 取 max (GameManager.cpp 过关时)
+            w.store.record_clear(w.character, w.difficulty, w.stage_no, g.num_retries)
     w.store.record_run_end(
         w.character,
         w.difficulty,
         score=w.globals.score,
         frames=w.frame,
-        cleared=cleared,
+        cleared=cleared and not w.practice,  # 练习通关不计 plst 通关数
         num_retries=g.num_retries,
     )
     w.result_cache = {

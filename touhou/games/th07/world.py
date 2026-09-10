@@ -75,6 +75,7 @@ from .globals import Th07Globals
 from .items import ItemKind, Th07ItemField
 from .msg import StageResultPanel, Th07MsgSystem, advance_stage
 from .player import BORDER_BREAK_INVULN, BorderState, OptionMachine, Th07PlayerField
+from .results import practice_pscr_key
 from .shot_cbs import SAKUYA_HOMING_WINDOW, Th07ShotHooks
 from .snapshot import Th07SnapshotSystem
 
@@ -88,6 +89,7 @@ class Th07World(World):
     character: int = 0
     difficulty: int = 1
     stage_no: int = 1
+    practice: bool = False  # 练习模式(GameManager.hpp:263 practice 位)
     # ---- engine field ----
     player: Th07PlayerField = msgspec.field(default_factory=Th07PlayerField)
     shots: ShotField = msgspec.field(default_factory=ShotField)
@@ -604,6 +606,7 @@ def compose_world(
     store: ScoreStore | None = None,
     score_path: str | None = None,
     life_count: int | None = None,
+    practice: bool = False,
 ) -> Th07World:
     """按装配拼出 th07 一关的可 tick 世界: 资源装载 + field 接线 + 管线挂载。
 
@@ -611,6 +614,8 @@ def compose_world(
     (落盘由调用方在结算确认时负责)。
     life_count: cfg.lifeCount(0..4) → 初始残机(GameManager.cpp:532
     SetLivesRemaining); None = 默认 3 残, Extra/Phantasm 固定 2 残不受影响。
+    practice: 练习模式(GameManager.cpp practice 分支)——固定 lifeCount=8(9 残)、
+    2 面起满 power、起步樱点按面抬、每面 pscr 记账; 结算差异在 result.py。
     """
     res = assembly.resources
     arc = open_archive(res.data_path, format_name=res.archive_format)
@@ -622,6 +627,16 @@ def compose_world(
         else:
             store = ScoreStore(spellcard_count=len(assembly.data.spellcard_scores))
     store.record_play(character, difficulty)  # PSCR/PLST 开局计数
+    if practice:
+        # 练习开局: 该面 pscr 游玩计数++(GameManager.cpp:460-472 ParseScores 分支)
+        pscr_entry = store.pscr.setdefault(
+            practice_pscr_key(difficulty, character, stage_no),
+            {"play_count": 0, "highscore": 0},
+        )
+        pscr_entry["play_count"] += 1
+    # 关进入账: clrd = max(clrd, currentStage-1) (GameManager.cpp:696-712,
+    # 不分本篇/练习; with_retries 由 record_clear 按 num_retries 门控, 开局=0)
+    store.record_clear(character, difficulty, stage_no - 1, 0)
     # 续关上限 (MainMenu.cpp:2576-2587): 累计游戏时长折算(plst.total_frames)
     play_hours = store.plst.get("total_frames", 0) / (60 * 3600)
     max_retries = 3 if play_hours < 7 else 4 if play_hours < 14 else 5
@@ -661,15 +676,31 @@ def compose_world(
         g.cherry = g.cherry_start + 200000
     elif difficulty == 5:
         g.cherry = g.cherry_start + 300000
+    if practice:
+        # 练习起步樱点(GameManager.cpp:611-632): 2 面起 cherry=cherryMax,
+        # 3 面起再按面抬上限(+50000/面)
+        g.cherry_max += {3: 50000, 4: 100000, 5: 150000, 6: 200000}.get(stage_no, 0)
+        if stage_no >= 2:
+            g.cherry = g.cherry_max
     if difficulty >= 4:
         # C: difficulty>=4 → lifeCount=2; 点道具奖残门槛 200
         g.lives = 2.0
         g.next_needed_point_items_for_extend = 200
+    elif practice:
+        g.lives = 9.0  # 练习固定 lifeCount=8 (GameManager.cpp:521-524)
     elif life_count is not None:
         g.lives = float(life_count + 1)  # cfg.lifeCount → 初始残机(:532)
+    if practice and stage_no > 1:
+        g.power = 128.0  # 练习 2 面起满 power (GameManager.cpp:714-725)
     g.bombs = shot_data.initial_bombs
     initial_lives = (
-        2 if difficulty >= 4 else life_count + 1 if life_count is not None else 3
+        2
+        if difficulty >= 4
+        else 9
+        if practice
+        else life_count + 1
+        if life_count is not None
+        else 3
     )
 
     # ---- field 装配(.sht 注入判定半径/移速/收集参数) ----
@@ -723,6 +754,7 @@ def compose_world(
         character=character,
         difficulty=difficulty,
         stage_no=stage_no,
+        practice=practice,
         player=player,
         shots=shots,
         bullets=bullets,

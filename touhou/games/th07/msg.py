@@ -133,7 +133,8 @@ def apply_stage_results(w: Th07World) -> None:
     )
     if stage >= 6:
         g.extends_from_point_items = -1  # 奖残封口
-    survivor = stage >= 6  # 6/7/8 面: 残机/炸弹奖
+    # 残机/炸弹奖: 7/8 面恒有, 6 面练习无(Gui.cpp:1385-1393 currentStage 门控)
+    survivor = stage >= 7 or (stage == 6 and not w.practice)
     bonus = (
         stage * 100000
         + snap["graze"] * 50
@@ -151,9 +152,9 @@ def apply_stage_results(w: Th07World) -> None:
         bonus = bonus * 15 // 10
     elif d >= 4:
         bonus <<= 1
-    # lifeCount 惩罚 (Gui.cpp:1389-1399): 固定 3(Extra/Phantasm 不受理), 恒 *0.5
+    # lifeCount 惩罚 (Gui.cpp:1387-1399): 固定 3(Extra/Phantasm/练习不受理), 恒 *0.5
     penalty_line = None
-    if d < 4:
+    if d < 4 and not w.practice:
         bonus = bonus * 5 // 10
         penalty_line = "Player Penalty*0.5"
     # Gui.cpp:1408-1417 ZUN bloat: AddScore ×10 (每次内部 //10, 合计 = bonus)
@@ -187,13 +188,17 @@ def apply_stage_results(w: Th07World) -> None:
 def apply_next_level(w: Th07World) -> None:
     """MSG_NEXT_LEVEL 分流(Gui.cpp:1004-1058)。
 
-    1-5 面登记次帧帧首换关; 6 面 → 结局(finished=1 → curState=9);
+    练习 → 直进总结算(无换关/结局, :1032-1037); 1-5 面登记次帧帧首换关;
+    6 面 → 结局(finished=1 → curState=9);
     7/8 面(Extra·Phantasm) → 总结算(finished=1 → curState=6 ResultScreen)。
     """
     # 出处 old/touhou/games/th07/world.py:1144
     if w.pending_next_level or w.result is not None or w.ending is not None:
         return
-    if w.stage_no < 6:
+    if w.practice:
+        w.cleared = True
+        w.result = final_result(w, cleared=True)
+    elif w.stage_no < 6:
         w.pending_next_level = True
     elif w.stage_no == 6:
         enter_ending(w)
@@ -268,6 +273,8 @@ def advance_stage(w: Th07World) -> None:
     # ---- currentStage++ → EclManager.Load + Gui::LoadMsg ----
     w.stage_no += 1
     w.enemies.stage = w.stage_no
+    # 关进入账: clrd = max(clrd, currentStage-1) (GameManager.cpp:696-712)
+    w.store.record_clear(w.character, w.difficulty, w.stage_no - 1, g.num_retries)
     load_stage(w)
 
 

@@ -104,10 +104,11 @@ def test_extra_unlocked_cursor_stops() -> None:
 
 
 def test_unimplemented_menu_item_is_noop() -> None:
-    """未接工厂的菜单项(Practice/Replay/Option 等)confirm 无反应(后续单接缝)。"""
+    """未接工厂的菜单项(Replay)confirm 无反应(后续单接缝)。"""
     scene = _scene()
     _enter_main_menu(scene)
     scene.step(_press(Button.DOWN))  # → Practice(2)
+    scene.step(_press(Button.DOWN))  # → Replay(3)
     scene.step(_press(Button.SHOT))
     assert scene._state is MenuState.PRE_INPUT
     assert not scene.done

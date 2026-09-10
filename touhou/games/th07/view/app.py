@@ -22,6 +22,8 @@ SCORE_PATH = "score.json"
 #: 配置落盘位置(原版 th07.cfg 的 JSON 简化版, games/th07/config.py)
 CONFIG_PATH = "config.json"
 
+_MENU_EXTRA_START = 1  # MENU_CURSOR_PREINPUT_EXTRA_START (MainMenu.hpp:44)
+_MENU_PRACTICE_START = 2  # MENU_CURSOR_PREINPUT_PRACTICE_START (MainMenu.hpp:45)
 _MENU_RESULT = 4  # MENU_CURSOR_PREINPUT_RESULTS (MainMenu.hpp:46)
 _MENU_MUSIC_ROOM = 5  # MENU_CURSOR_PREINPUT_MUSICROOM (MainMenu.hpp:47)
 _MENU_OPTION = 6  # MENU_CURSOR_PREINPUT_OPTIONS (MainMenu.hpp:48)
@@ -62,7 +64,12 @@ def run_app(
         backend = PygameBackend(archive, anm_version=assembly.scripts.anm_version)
     _apply_config(backend, config)
 
-    def make_title(*, cursor: int = 0, vm_set: MenuVmSet | None = None) -> TitleScene:
+    def make_title(
+        *,
+        cursor: int = 0,
+        vm_set: MenuVmSet | None = None,
+        practice_mode: bool = False,
+    ) -> TitleScene:
         return TitleScene(
             archive,
             store,
@@ -76,6 +83,8 @@ def run_app(
             },
             vm_set=vm_set,
             cursor=cursor,
+            practice_mode=practice_mode,
+            spellcard_count=len(assembly.data.spellcard_scores),
         )
 
     def make_playerdata(title: TitleScene) -> PlayerDataScene:
@@ -112,13 +121,28 @@ def run_app(
             assembly,
             character=req.character,
             difficulty=req.difficulty,
+            stage_no=req.stage_no,
             seed=seed,
             store=store,
             life_count=config.life_count,
+            practice=req.practice,
         )
+        if req.practice:
+            # 练习对局回来: 主菜单 INIT 直跳练习选择链落到选面页
+            # (isPracticeMode, MainMenu.cpp:2637-2643)
+            def on_exit() -> TitleScene:
+                return make_title(cursor=_MENU_PRACTICE_START, practice_mode=True)
+
+        else:
+            # 本篇/Extra 回来: 光标停 Start/Extra Start(MainMenu.cpp:2622-2626)
+            def on_exit() -> TitleScene:
+                return make_title(
+                    cursor=_MENU_EXTRA_START if req.difficulty >= 4 else 0
+                )
+
         return GameScene(
             world,
-            on_exit=make_title,  # 结算后回标题(结算画面 ResultScreen 留待后续单)
+            on_exit=on_exit,  # 结算画面 ResultScreen 留待后续单, 现回标题
             on_result=lambda w: store.save(score_path),
         )
 
