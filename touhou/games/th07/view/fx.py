@@ -5,6 +5,7 @@ ANM VM 用独立 Rng(0) 不碰 sim rng; 贴图键与快照生产同一链式 id 
 (``<anm文件名>:<链式全局sprite id>``), 后端照常寻址。触发映射:
 EnemyDied→爆散 (EnemyManager.cpp:951-1020), PlayerDied→大爆 (Player.cpp:1233-1234),
 SpellcardBegan→宣言横幅+魔法阵+符卡环 (EclManager.cpp:658-708),
+BombStarted→bomb 演出 (BombData.cpp 各 *Draw + Gui.cpp:343-362),
 MsgMusicChange→标题 BGM 行 (Gui.cpp:959-973), 收点/BONUS 弹字经
 world.frame_popups/frame_bonus_score 透出消费, 对话立绘每帧采 world.msg_vm
 透出状态 (Gui.cpp:848-898/1115-1154)。
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 from ....engine import SpriteDraw, TextDraw
 from ....engine.anm import AnmBank, build_bank
+from ....engine.bomb import BombEnded, BombStarted
 from ....engine.boss import SpellcardBegan, SpellcardEnded, SpellcardFailed
 from ....engine.enemies import EnemyDied
 from ....engine.events import Event
@@ -25,6 +27,7 @@ from ....engine.rng import Rng
 from ....schemas.anm import parse_anm
 from ....schemas.archive import load_entry
 from ..world import Th07World
+from .bombfx import BombFx
 from .dialog import DialogPortraits
 from .effects import FxParticles
 from .popups import BonusBanners, ScorePopups, StageTitle, StatusBanner
@@ -41,6 +44,7 @@ class GameFx:
         self._banks: dict[str, AnmBank | None] = {}
         self._preloaded_stage = -1
         self.particles = FxParticles()
+        self.bombfx = BombFx(self._rng)
         self.dialog = DialogPortraits(self._rng)
         self.banner = SpellcardBanner(self._rng)
         self.circle = MagicCircle(self._rng)
@@ -80,6 +84,7 @@ class GameFx:
         names = ["etama.anm", "ascii.anm", "text.anm", f"std{stage_no}txt.anm"]
         names.append(_FACE_ANM[w.character // 2])
         names.append(f"face_{stage_no:02d}_00.anm")
+        names.append(f"player0{w.character // 2}.anm")  # bomb 机体视觉
         names += [name for name, _ in _SC_BG_VMS.get(stage_no, ())]
         for name in names:
             self._bank(name)
@@ -110,6 +115,10 @@ class GameFx:
             self.ring.end()
         elif isinstance(ev, MsgMusicChange):
             self.title.on_music(self._bank, ev.music_idx)
+        elif isinstance(ev, BombStarted):
+            self.bombfx.begin(w, focus=ev.focus, bank_of=self._bank)
+        elif isinstance(ev, BombEnded):
+            self.bombfx.end()
 
     def _enemy_death_fx(self, ev: EnemyDied) -> None:
         """敌击坠爆散 (EnemyManager.cpp:959-1019): deathAnm1 + deathAnm2+4。"""
@@ -155,6 +164,9 @@ class GameFx:
         sprites += self.particles.step()
         sprites += self.ring.step(boss_pos)
         sp, tx = self.banner.step(w)
+        sprites += sp
+        texts += tx
+        sp, tx = self.bombfx.step(w, self.particles)
         sprites += sp
         texts += tx
         sprites += self.dialog.step(w, self._bank)
