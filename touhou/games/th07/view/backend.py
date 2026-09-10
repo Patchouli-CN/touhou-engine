@@ -18,8 +18,10 @@ from ....schemas.sound import SOUND_EFFECTS
 from ..snapshot import GAME_H, GAME_W, GAME_X, GAME_Y, WIN_H, WIN_W
 from .bank import SurfaceBank
 
-_BG_COLOR = (8, 12, 30)  # 3D 背景留待后续单, 纯色占位
-_FIELD_COLOR = (10, 14, 36)
+_BG_COLOR = (8, 12, 30)  # 窗外区底色
+_PANEL_COLOR = (14, 18, 42)  # 右栏积分面板底色
+_FIELD_COLOR = (10, 14, 36)  # 游戏区底色(3D 背景留待后续单, 纯色占位)
+_BORDER_COLOR = (58, 66, 108)  # 游戏区边框(原作为边框贴图, 近似色环)
 
 #: 默认键位(th07 原作: Z=射击 X=炸弹 Shift=低速 Ctrl=快进 Esc=暂停)
 _KEYMAP: dict[int, Button] = {
@@ -56,9 +58,12 @@ def _load_font(size: int) -> pygame.font.Font:
 class PygameBackend(RenderBackend):
     """RenderBackend 的 pygame 实现(窗口/Surface 合成/键盘/SE)。"""
 
-    def __init__(self, archive: Archive | None, *, anm_version: int = 2) -> None:
+    def __init__(
+        self, archive: Archive | None, *, anm_version: int = 2, scale: int = 2
+    ) -> None:
         self.bank = SurfaceBank(archive, anm_version=anm_version)
         self._archive = archive
+        self._default_scale = max(1, scale)  # open 未显式传 scale 时的窗口倍率
         self._scr: pygame.Surface | None = None
         self._frame_surf: pygame.Surface | None = None
         self._clock: pygame.time.Clock | None = None
@@ -69,14 +74,14 @@ class PygameBackend(RenderBackend):
         self._mixer_ok = False
 
     # ---- 生命周期 ----
-    def open(self, *, title: str, scale: int = 1) -> None:
+    def open(self, *, title: str, scale: int | None = None) -> None:
         pygame.init()
         try:  # 没声卡也能跑, 静音即可
             pygame.mixer.init()
             self._mixer_ok = True
         except pygame.error:
             self._mixer_ok = False
-        self._scale = max(1, scale)
+        self._scale = max(1, scale if scale is not None else self._default_scale)
         self._scr = pygame.display.set_mode((WIN_W * self._scale, WIN_H * self._scale))
         pygame.display.set_caption(title)
         self._clock = pygame.time.Clock()
@@ -125,11 +130,25 @@ class PygameBackend(RenderBackend):
         assert self._frame_surf is not None
         frame = self._frame_surf
         frame.fill(_BG_COLOR)
+        # 右栏积分面板区(原作右栏贴图背景, 近似纯色)
+        pygame.draw.rect(
+            frame, _PANEL_COLOR, (GAME_X + GAME_W, 0, WIN_W - GAME_X - GAME_W, WIN_H)
+        )
         pygame.draw.rect(
             frame, _FIELD_COLOR, (GAME_X, GAME_Y, GAME_W, GAME_H)
         )  # 游戏区底色(背景占位)
+        # 世界 sprite 裁进游戏区(原作场外包边不露实体)
+        frame.set_clip(pygame.Rect(GAME_X, GAME_Y, GAME_W, GAME_H))
         for spr in sorted(snapshot.sprites, key=lambda s: s.z):
             self._blit_sprite(frame, spr)
+        frame.set_clip(None)
+        # 游戏区边框环(画在 sprite 之后, 保证边线干净)
+        pygame.draw.rect(
+            frame,
+            _BORDER_COLOR,
+            (GAME_X - 2, GAME_Y - 2, GAME_W + 4, GAME_H + 4),
+            2,
+        )
         for text in snapshot.texts:
             self._blit_text(frame, text.text, text.x, text.y, text.size, text.rgba)
         if self._clock is not None:

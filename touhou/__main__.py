@@ -17,7 +17,9 @@ def main() -> None:
     parser.add_argument("--difficulty", type=int, default=1)
     parser.add_argument("--stage", type=int, default=1)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--scale", type=int, default=1)
+    parser.add_argument(
+        "--scale", type=int, default=None, help="窗口缩放倍率(缺省用后端的默认)"
+    )
     args = parser.parse_args()
     compose = importlib.import_module(
         f".games.{args.game}.compose", __package__

@@ -9,7 +9,9 @@ import pytest
 
 from touhou.engine import InputFrame, SceneSnapshot, SpriteDraw, TextDraw
 from touhou.engine.input import Button
+from touhou.games.th07.snapshot import GAME_W, GAME_X, GAME_Y, WIN_H, WIN_W
 from touhou.games.th07.view import PygameBackend
+from touhou.games.th07.view import backend as backend_mod
 
 from .conftest import needs_data
 
@@ -60,6 +62,44 @@ def test_input_injection(backend: PygameBackend) -> None:
 def test_play_sounds_no_data_no_crash(backend: PygameBackend) -> None:
     """无数据/无声卡: play_sounds 静默降级, 越界 idx 不炸。"""
     backend.play_sounds([0, 5, 999])
+
+
+def test_playfield_clip_border_and_panel(backend: PygameBackend) -> None:
+    """世界 sprite 裁进游戏区; 区外有边框, 右栏底色与外区可分辨。"""
+    # 20x20 兜底块压在游戏区左上角: 区外一半必须被裁掉
+    snap = SceneSnapshot(
+        0, sprites=(SpriteDraw("item:1", float(GAME_X), float(GAME_Y)),)
+    )
+    backend._render(snap)
+    frame = backend._frame_surf
+    assert frame is not None
+    sprite_rgb = frame.get_at((GAME_X + 5, GAME_Y + 5))[:3]
+    assert sprite_rgb != backend_mod._FIELD_COLOR  # 区内画上了
+    # 区外(边框之外)不沾 sprite
+    assert frame.get_at((GAME_X - 5, GAME_Y + 100))[:3] == backend_mod._BG_COLOR
+    assert frame.get_at((GAME_X - 5, GAME_Y - 5))[:3] == backend_mod._BG_COLOR
+    # 边框环存在
+    assert frame.get_at((GAME_X - 1, GAME_Y + 100))[:3] == backend_mod._BORDER_COLOR
+    assert frame.get_at((GAME_X + 100, GAME_Y - 1))[:3] == backend_mod._BORDER_COLOR
+    # 右栏面板底色与外区可分辨
+    assert frame.get_at((GAME_X + GAME_W + 30, 100))[:3] == backend_mod._PANEL_COLOR
+    assert backend_mod._PANEL_COLOR != backend_mod._BG_COLOR
+
+
+def test_window_scale_configurable() -> None:
+    """Scale 构造参数默认 2; open 显式传参可覆盖。"""
+    b = PygameBackend(None)
+    b.open(title="t")
+    assert b._scr is not None and b._scr.get_size() == (WIN_W * 2, WIN_H * 2)
+    b.close()
+    b = PygameBackend(None, scale=3)
+    b.open(title="t")
+    assert b._scr is not None and b._scr.get_size() == (WIN_W * 3, WIN_H * 3)
+    b.close()
+    b = PygameBackend(None)
+    b.open(title="t", scale=1)
+    assert b._scr is not None and b._scr.get_size() == (WIN_W, WIN_H)
+    b.close()
 
 
 @needs_data

@@ -18,7 +18,7 @@ def run_game(
     difficulty: int = 1,
     stage_no: int = 1,
     seed: int | None = None,
-    scale: int = 1,
+    scale: int | None = None,
     backend: RenderBackend | None = None,
     world: Th07World | None = None,
 ) -> Th07World:
