@@ -55,6 +55,9 @@ from ...utils.math import Vec2
 from . import settle
 from .bomb import (
     BOMB_SUBRANK_PENALTY,
+    CHAR_MARISA_B,
+    CHAR_SAKUYA_A,
+    CHAR_SAKUYA_B,
     EVENT_REMOVE_ALL_ITEMS,
     EVENT_STOP_BULLET_MOVEMENT,
     Th07BombContext,
@@ -69,6 +72,7 @@ from .globals import Th07Globals
 from .items import ItemKind, Th07ItemField
 from .msg import StageResultPanel, Th07MsgSystem, advance_stage
 from .player import BORDER_BREAK_INVULN, BorderState, OptionMachine, Th07PlayerField
+from .shot_cbs import SAKUYA_HOMING_WINDOW, Th07ShotHooks
 
 #: 回放确定性: 显式 seed 时 ECL rng 用派生值(出处 old/touhou/games/th07/world.py:190)
 _DEFAULT_SEED = 0x5EED
@@ -95,6 +99,9 @@ class Th07World(World):
     # ---- 作品状态 ----
     th07: Th07Globals = msgspec.field(default_factory=Th07Globals)
     options: OptionMachine = msgspec.field(default_factory=OptionMachine)
+    shot_hooks: Th07ShotHooks = msgspec.field(
+        default_factory=lambda: Th07ShotHooks(options=OptionMachine())
+    )
     boss: BossField | None = None
     boss_enemy: Enemy | None = None
     # ---- ECL 接线(compose_world 装载; None = 无 ECL 数据) ----
@@ -286,6 +293,11 @@ class Th07SyncSystem(System[Th07World]):
         enemies.player_pos = player.pos
         # 追踪炸弹目标: 索敌重置前留住上帧结果 (旧 world.py:908-910 回写)
         world.last_enemy_hit = enemies.targeting.position_of_last_enemy_hit
+        # exotic 弹回调状态口: homing/咲夜索敌目标(同上, 上帧扫描结果)
+        world.shot_hooks.position_of_last_enemy_hit = (
+            enemies.targeting.position_of_last_enemy_hit
+        )
+        world.shot_hooks.sakuya_target_position = enemies.targeting.homing_target
         enemies.targeting.reset()  # 索敌状态每帧重置 (Player::UpdateUI)
         enemies.damage_timers.clear()
         # 敌弹/激光判定门控(出处 old world.py:914-927 的玩家状态门控)
@@ -310,6 +322,8 @@ class Th07SyncSystem(System[Th07World]):
         world.shots.options = world.options.step(
             player.pos, player.velocity, focus=player.focus, firing=player.firing
         )
+        # focus 切态的持续弹槽清理(旧 _update_shots 首段, 弹场步进前)
+        world.shot_hooks.clear_stale_slots(world.shots)
 
 
 class Th07TimelineSystem(System[Th07World]):
@@ -456,10 +470,16 @@ class Th07PlayerSystem(PlayerSystem):
     """LOGIC 槽: 自机步进; bomb 中输入向量乘 move_speed_multiplier (旧 world.py:854-863)。"""
 
     def __init__(
-        self, field: Th07PlayerField, shots: ShotField, bomb: Th07BombField
+        self,
+        field: Th07PlayerField,
+        shots: ShotField,
+        bomb: Th07BombField,
+        *,
+        suppress_bomb_fire: bool = False,
     ) -> None:
         super().__init__(field, shots)
         self.bomb = bomb
+        self.suppress_bomb_fire = suppress_bomb_fire  # MarisaB: 炸弹中不发射
 
     def tick(self, world: World, ctx: FrameContext) -> None:
         f = self.field  # world 用不上: bomb/field/shots 均构造注入
@@ -482,6 +502,9 @@ class Th07PlayerSystem(PlayerSystem):
             s.firing = f.firing
             s.player_state = int(f.state)
             s.dialog_active = f.dialog_active
+            # 持续弹压计时/伤害 /3 与机体发射抑制 (旧 world.py:854 + is_marisa_b)
+            s.bomb_active = self.bomb.is_in_use
+            s.fire_suppressed = self.bomb.is_in_use and self.suppress_bomb_fire
 
 
 class Th07ContactSystem(System[Th07World]):
@@ -609,6 +632,9 @@ def compose_world(
         initial_respawn_timer=shot_data.initial_respawn_timer,
     )
     shots = ShotField(shot_data=shot_data, shot_data_focus=shot_data_focus)
+    option_machine = OptionMachine(rotating=(character == CHAR_SAKUYA_B))  # 旋转子机
+    shot_hooks = Th07ShotHooks(options=option_machine)
+    shot_hooks.register(shots)  # exotic 弹回调(追踪/orb 激光/导弹等)
     bullets = BulletField(
         type_specs=BULLET_TYPE_SPECS,
         player_radius=shot_data.hitbox_radius / 2,
@@ -622,6 +648,9 @@ def compose_world(
         difficulty=difficulty,
     )
     enemies = Th07EnemyField(stage=stage_no, is_reimu_a=(character == 0))
+    if character in (CHAR_SAKUYA_A, CHAR_SAKUYA_B):
+        # 咲夜索敌角度窗(旧 Targeting 的 is_sakuya 分支, old world.py:885)
+        enemies.targeting.homing_window = SAKUYA_HOMING_WINDOW
     bomb = Th07BombField(character=character)
     bomb_ctx = Th07BombContext(player_pos=player.pos)
 
@@ -652,7 +681,8 @@ def compose_world(
         bomb=bomb,
         bomb_ctx=bomb_ctx,
         th07=g,
-        options=OptionMachine(rotating=(character == 5)),  # 咲夜B 旋转子机
+        options=option_machine,
+        shot_hooks=shot_hooks,
         host=host,
         timelines=timelines,
         msg_vm=msg_vm,
@@ -683,7 +713,12 @@ def compose_world(
     p.add(Slot.LOGIC, Th07MsgSystem())
     p.add(Slot.LOGIC, Th07EnemyEclSystem(enemies, host))
     p.add(Slot.LOGIC, Th07BorderSystem())
-    p.add(Slot.LOGIC, Th07PlayerSystem(player, shots, bomb))
+    p.add(
+        Slot.LOGIC,
+        Th07PlayerSystem(
+            player, shots, bomb, suppress_bomb_fire=(character == CHAR_MARISA_B)
+        ),
+    )
     p.add(Slot.LOGIC, Th07BossSystem())
     p.add(Slot.LOGIC, GlobalsSystem(world.globals))
     p.add(Slot.MOVEMENT, ShotMovementSystem(shots))
