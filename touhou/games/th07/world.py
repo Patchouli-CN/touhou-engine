@@ -603,11 +603,14 @@ def compose_world(
     seed: int | None = None,
     store: ScoreStore | None = None,
     score_path: str | None = None,
+    life_count: int | None = None,
 ) -> Th07World:
     """按装配拼出 th07 一关的可 tick 世界: 资源装载 + field 接线 + 管线挂载。
 
     store/score_path: 成绩库直接注入 > 指定文件读档 > 新建内存库
     (落盘由调用方在结算确认时负责)。
+    life_count: cfg.lifeCount(0..4) → 初始残机(GameManager.cpp:532
+    SetLivesRemaining); None = 默认 3 残, Extra/Phantasm 固定 2 残不受影响。
     """
     res = assembly.resources
     arc = open_archive(res.data_path, format_name=res.archive_format)
@@ -662,7 +665,12 @@ def compose_world(
         # C: difficulty>=4 → lifeCount=2; 点道具奖残门槛 200
         g.lives = 2.0
         g.next_needed_point_items_for_extend = 200
+    elif life_count is not None:
+        g.lives = float(life_count + 1)  # cfg.lifeCount → 初始残机(:532)
     g.bombs = shot_data.initial_bombs
+    initial_lives = (
+        2 if difficulty >= 4 else life_count + 1 if life_count is not None else 3
+    )
 
     # ---- field 装配(.sht 注入判定半径/移速/收集参数) ----
     player = Th07PlayerField(
@@ -736,7 +744,7 @@ def compose_world(
         cherry_penalty_multiplier=shot_data.cherry_penalty_multiplier,
         store=store,
         max_retries=max_retries,
-        initial_lives=2 if difficulty >= 4 else 3,
+        initial_lives=initial_lives,
     )
     # ---- 宿主/自机 hook 接线 ----
     host.on_sound = world.frame_sounds.append

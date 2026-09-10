@@ -74,6 +74,8 @@ class PygameBackend(RenderBackend):
         self._mixer_ok = False
         # 游戏区边框/右栏/裁剪(runner 按 scene.playfield_chrome 同步; 菜单画面关)
         self.playfield_chrome = True
+        # SE 总开关(cfg.playSounds, 由装配处同步; SoundPlayer playSounds 语义)
+        self.sounds_enabled = True
 
     # ---- 生命周期 ----
     def open(self, *, title: str, scale: int | None = None) -> None:
@@ -103,7 +105,7 @@ class PygameBackend(RenderBackend):
         return inp
 
     def play_sounds(self, ids: list[int]) -> None:
-        if not self._mixer_ok:
+        if not self._mixer_ok or not self.sounds_enabled:
             return
         for idx in set(ids):  # 同帧同音去重
             if not 0 <= idx < len(SOUND_EFFECTS):

@@ -117,7 +117,7 @@ def test_unimplemented_menu_item_is_noop() -> None:
 def test_submenu_factory_seam() -> None:
     """Submenus 表挂了工厂的项: confirm → done + 工厂产物(后续单插入 scene 的口)。"""
     marker = TitleScene(None, ScoreStore(), MenuMemory())
-    scene = _scene(submenus={6: lambda: marker})
+    scene = _scene(submenus={6: lambda title: marker})
     _enter_main_menu(scene)
     for _ in range(5):  # 0→2(Extra 锁定滑过)→3→4→5→6
         scene.step(_press(Button.DOWN))
@@ -279,8 +279,8 @@ def test_real_data_title_and_select_layout() -> None:
     assert len(anm_sprites) > 8  # logo + 菜单 8 项等
     assert scene.snapshot().texts  # 说明文字(ゲームを開始します)
     # 菜单 8 项: 选中项亮(base), 其余暗(base+1)
-    menu_gids = [scene._vms[i + 1].vm.active_sprite_idx for i in range(8)]
-    bases = [scene._vms[i + 1].base_sprite_idx for i in range(8)]
+    menu_gids = [scene.menu_vms.vms[i + 1].vm.active_sprite_idx for i in range(8)]
+    bases = [scene.menu_vms.vms[i + 1].base_sprite_idx for i in range(8)]
     assert menu_gids[0] == bases[0]
     assert all(menu_gids[i] == bases[i] + 1 for i in range(1, 8))
     # 全链走到开局

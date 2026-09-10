@@ -146,3 +146,47 @@ def test_run_app_full_chain(tmp_path) -> None:
     )
     assert not backend._inputs  # 输入序列正好喂完
     assert backend.closed
+
+
+@needs_data
+def test_run_app_option_chain(tmp_path) -> None:
+    """run_app 全链: 主菜单→Option→调残机→返回(光标停 Option)→Quit, 配置落盘。"""
+    from touhou.games.th07.compose import compose
+    from touhou.games.th07.config import load_config
+    from touhou.games.th07.view.app import run_app
+
+    def press(b: Button) -> InputFrame:
+        return InputFrame(held=frozenset({b}), pressed=frozenset({b}))
+
+    shot = press(Button.SHOT)
+    down = press(Button.DOWN)
+    inputs: list[InputFrame | None] = (
+        [_IDLE] * 11
+        + [down] * 5  # 0→2(Extra 锁定滑过)→3→4→5→6(Option)
+        + [shot]  # 进 Option
+        + [_IDLE] * 35  # 30 帧转场 + INIT + 4 帧输入门
+        + [press(Button.RIGHT)]  # 残机档 2→3
+        + [press(Button.UP)]  # 光标 0→8(Exit, 环绕)
+        + [shot]  # 回主菜单(光标停 Option=6)
+        + [_IDLE] * 11  # 主菜单确认门
+        + [down]  # 6→7(Exit)
+        + [shot]  # Quit
+        + [_IDLE] * 60  # 离场 60 帧后退出
+    )
+    backend = _StubBackend(inputs)
+    config_path = str(tmp_path / "config.json")
+    run_app(
+        compose(),
+        seed=42,
+        score_path=str(tmp_path / "score.json"),
+        config_path=config_path,
+        backend=backend,
+    )
+    assert not backend._inputs  # 输入序列正好喂完
+    assert backend.closed
+    cfg = load_config(config_path)
+    assert cfg.life_count == 3  # Option 里调的一档落盘
+    # SE 序列: 移动 12 ×8(菜单 5 + option 2 + 返回后 1), 确认 10 ×2, 返回 11 ×1
+    assert backend.sounds.count(12) == 8
+    assert backend.sounds.count(10) == 2
+    assert backend.sounds.count(11) == 1
