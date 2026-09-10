@@ -28,6 +28,7 @@ from ...utils.math import Vec2
 from .ecl_table import parse_ecl
 from .ecl_timeline import TL_HANDLERS
 from .player import OPTION_ANGLE_CENTER, Border, BorderState, OptionState
+from .result import enter_ending, final_result
 
 if TYPE_CHECKING:
     from .world import Th07World  # 仅类型检查期(运行时本模块被 world 引用)
@@ -184,15 +185,21 @@ def apply_stage_results(w: Th07World) -> None:
 
 
 def apply_next_level(w: Th07World) -> None:
-    """MSG_NEXT_LEVEL 分流(Gui.cpp:1004-1058): 1-5 面登记次帧帧首换关。
+    """MSG_NEXT_LEVEL 分流(Gui.cpp:1004-1058)。
 
-    6 面 → 结局 / 7-8 面(Extra·Phantasm) → 总结算: ending/result 未接(留待)。
+    1-5 面登记次帧帧首换关; 6 面 → 结局(finished=1 → curState=9);
+    7/8 面(Extra·Phantasm) → 总结算(finished=1 → curState=6 ResultScreen)。
     """
     # 出处 old/touhou/games/th07/world.py:1144
-    if w.pending_next_level:
+    if w.pending_next_level or w.result is not None or w.ending is not None:
         return
     if w.stage_no < 6:
         w.pending_next_level = True
+    elif w.stage_no == 6:
+        enter_ending(w)
+    else:
+        w.cleared = True
+        w.result = final_result(w, cleared=True)
 
 
 def advance_stage(w: Th07World) -> None:
@@ -207,6 +214,9 @@ def advance_stage(w: Th07World) -> None:
     g = w.th07
     w.globals.snap_gui_score()  # NEXT_LEVEL: guiScore 对齐真实分
     w.stage_results = None
+    w.point_items_prev_stages += (
+        g.point_items_collected_this_stage
+    )  # 过关面累计(结算用)
     g.subrank = 0
     g.point_items_collected_this_stage = 0
     g.graze_in_stage = 0
@@ -219,6 +229,7 @@ def advance_stage(w: Th07World) -> None:
     w.enemies.clear()
     w.boss = None
     w.boss_enemy = None
+    w.catk_idx = None
     w.rand_spawn_idx = 0
     w.rand_table_idx = 0
     w.border_boxes = []

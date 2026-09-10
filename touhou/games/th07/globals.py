@@ -46,6 +46,7 @@ class Th07Globals(msgspec.Struct):
     # ---- 计数 ----
     deaths: int = 0
     bombs_used: float = 0.0
+    num_retries: int = 0  # 续关次数(numRetries; !=0 → bad ending, Ending.cpp:499-505)
     graze_in_stage: int = 0
     graze_in_total: int = 0
     spell_cards_captured: int = 0

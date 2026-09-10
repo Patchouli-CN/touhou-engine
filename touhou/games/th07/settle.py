@@ -144,14 +144,20 @@ def _on_enemy_timer_callback(w: Th07World, ev: EnemyTimerCallback) -> None:
 
 
 def _on_spellcard_ended(w: Th07World, ev: SpellcardEnded) -> None:
-    """符卡结束入账: 捕获分/计数; 非超时结束清弹转道具 + 清场, 累计分入账。"""
+    """符卡结束入账: 捕获分/计数/catk; 非超时结束清弹转道具 + 清场, 累计分入账。"""
     # 出处 old/touhou/games/th07/world.py:1689 (_apply_spellcard_end)
     assert w.host is not None
+    catk_idx = w.catk_idx
+    w.catk_idx = None
     if ev.timed_out:
         return  # 超时罚则已在 SpellcardFailed 入账
     if ev.captured:
         w.add_score(ev.score)  # capture+grazeBonus 已是代码值
         w.th07.spell_cards_captured += 1
+        if catk_idx is not None:
+            # catk: successes++/highscore 取 max (EclManager.cpp EndSpellcard);
+            # 只接 ECL 路径(catk_idx 由 begin 登记)
+            w.store.record_spellcard_success(catk_idx, w.character, ev.score // 10)
     removed = despawn_bullets_bonus(w)
     removed = w.host.remove_all_enemies(8000, removed)
     if removed:

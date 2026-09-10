@@ -48,10 +48,13 @@ from ...engine.enemies import Enemy
 from ...engine.events import Event, EventHandler
 from ...engine.items import STATE_ATTRACT
 from ...engine.rng import Rng
+from ...engine.score_store import ScoreStore
 from ...schemas.archive import Archive, load_entry, open_archive
+from ...schemas.ending import EndingFile
 from ...schemas.msg import parse_msg
 from ...schemas.shot_data import parse_sht
 from ...utils.math import Vec2
+from . import result as result_flow
 from . import settle
 from .bomb import (
     BOMB_SUBRANK_PENALTY,
@@ -125,6 +128,16 @@ class Th07World(World):
     cherry_penalty_multiplier: float = 0.0
     # ---- 账本 ----
     game_over: bool = False
+    # ---- 结局/总结算/续关(result_flow 驱动; 数据透出, view 消费) ----
+    ending: EndingFile | None = None  # 6 面通关的结局数据(播放器在 engine.ending)
+    cleared: bool = False
+    result: dict | None = None  # 总结算数据(通关/GameOver 后填)
+    store: ScoreStore = msgspec.field(default_factory=ScoreStore)
+    max_retries: int = 3  # 续关上限(累计游戏时长 <7h→3/<14h→4/否则5)
+    initial_lives: int = 3  # 续关回残基数(与开局同值)
+    point_items_prev_stages: int = 0  # 已过关面的点道具累计(结算用)
+    catk_idx: int | None = None  # 当前 ECL 符卡的全局编号(catk 入账)
+    result_cache: dict | None = None
     rand_spawn_idx: int = 0  # C randomItemSpawnIdx(itemDrop==-1 每 3 杀掉 1)
     rand_table_idx: int = 0  # C randomItemTableIdx
     death_pos: Vec2 | None = None
@@ -150,7 +163,16 @@ class Th07World(World):
         self.frame_sounds.clear()
         self.frame_shakes.clear()
         if self.game_over:
-            # 无残机死亡: 画面冻结(续关/结算留待), 仍出快照并清事件
+            # 无残机死亡(C++ 进 retry 菜单): 可续关则画面冻结, 等 view 选择
+            # (continue_play/finalize_game_over); 不可续关(Extra·Phantasm/
+            # 次数用尽)同 C++ 直接进结算
+            if self.result is None and not result_flow.continue_available(self):
+                self.result = result_flow.final_result(self, cleared=False)
+            snapshot = ctx.draw.build(self.frame)
+            ctx.events.flush()
+            return snapshot
+        if self.ending is not None or self.cleared:
+            # 结局显示中(view 看完调 finish_ending)/已通关进结算: 画面冻结
             snapshot = ctx.draw.build(self.frame)
             ctx.events.flush()
             return snapshot
@@ -247,6 +269,9 @@ class Th07World(World):
             timeout,
             timeout_sub=max(e.timer_callback_sub, 0),
         )
+        # catk: attempts[shot]/[合计槽] ++ (EclManager.cpp:709-744)
+        self.catk_idx = idx
+        self.store.record_spellcard_attempt(idx, name, self.character)
 
     def _on_end_spellcard(self, m: EclMachine) -> None:
         """EndSpellcard: 是当前 boss 的卡则收尾(产 SpellcardEnded)。"""
@@ -575,10 +600,27 @@ def compose_world(
     difficulty: int = 1,
     stage_no: int = 1,
     seed: int | None = None,
+    store: ScoreStore | None = None,
+    score_path: str | None = None,
 ) -> Th07World:
-    """按装配拼出 th07 一关的可 tick 世界: 资源装载 + field 接线 + 管线挂载。"""
+    """按装配拼出 th07 一关的可 tick 世界: 资源装载 + field 接线 + 管线挂载。
+
+    store/score_path: 成绩库直接注入 > 指定文件读档 > 新建内存库
+    (落盘由调用方在结算确认时负责)。
+    """
     res = assembly.resources
     arc = open_archive(res.data_path, format_name=res.archive_format)
+    if store is None:
+        if score_path is not None:
+            store = ScoreStore.load(
+                score_path, spellcard_count=len(assembly.data.spellcard_scores)
+            )
+        else:
+            store = ScoreStore(spellcard_count=len(assembly.data.spellcard_scores))
+    store.record_play(character, difficulty)  # PSCR/PLST 开局计数
+    # 续关上限 (MainMenu.cpp:2576-2587): 累计游戏时长折算(plst.total_frames)
+    play_hours = store.plst.get("total_frames", 0) / (60 * 3600)
+    max_retries = 3 if play_hours < 7 else 4 if play_hours < 14 else 5
     sht_unf, sht_foc = assembly.data.character_sht[character]
     shot_data = parse_sht(load_entry(arc, sht_unf))
     shot_data_focus = parse_sht(load_entry(arc, sht_foc))
@@ -691,6 +733,9 @@ def compose_world(
         rng=Rng(main_seed),
         initial_bombs=shot_data.initial_bombs,
         cherry_penalty_multiplier=shot_data.cherry_penalty_multiplier,
+        store=store,
+        max_retries=max_retries,
+        initial_lives=2 if difficulty >= 4 else 3,
     )
     # ---- 宿主/自机 hook 接线 ----
     host.on_sound = world.frame_sounds.append

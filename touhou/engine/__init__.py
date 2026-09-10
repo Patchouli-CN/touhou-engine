@@ -65,6 +65,14 @@ from .bullets import (
 )
 from .context import Command, CommandQueue, FrameContext
 from .core import Pipeline, Slot, System, World, tick_frame
+from .ending import (
+    FADE_IN_BLACK,
+    FADE_IN_WHITE,
+    FADE_OUT_BLACK,
+    FADE_OUT_WHITE,
+    EndingLine,
+    EndingPlayer,
+)
 from .enemies import (
     DAMAGE_CAP,
     BombDamageSystem,
@@ -143,6 +151,7 @@ from .player import (
     PlayerSystem,
 )
 from .rng import Rng
+from .score_store import ScoreStore, default_score, make_highscore_record
 from .shots import (
     FIRE_CYCLE,
     PERSIST_RELEASE_CAP,
@@ -167,6 +176,10 @@ __all__ = [
     "BOMB_RESPAWN_PENALTY",
     "BULLET_GRACE_PERIOD",
     "DAMAGE_CAP",
+    "FADE_IN_BLACK",
+    "FADE_IN_WHITE",
+    "FADE_OUT_BLACK",
+    "FADE_OUT_WHITE",
     "FIRE_CYCLE",
     "GRAZE_EXPAND",
     "GUI_SCORE_INCREMENT_MAX",
@@ -221,6 +234,8 @@ __all__ = [
     "DamageSettle",
     "DespawnCause",
     "EffectDraw",
+    "EndingLine",
+    "EndingPlayer",
     "Enemy",
     "EnemyContactSystem",
     "EnemyDamaged",
@@ -281,6 +296,7 @@ __all__ = [
     "SaveSemantics",
     "SceneSnapshot",
     "ScoreChanged",
+    "ScoreStore",
     "ScriptSet",
     "ShotField",
     "ShotFired",
@@ -300,7 +316,9 @@ __all__ = [
     "build_bank",
     "build_script",
     "check_assembly",
+    "default_score",
     "laser_hits_player",
+    "make_highscore_record",
     "rank_lerp",
     "rank_lerp_int",
     "settle_damage",
