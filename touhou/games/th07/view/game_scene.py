@@ -10,6 +10,7 @@ from .. import result as result_flow
 from ..replay import ReplayRecorder
 from ..world import Th07World
 from .fx import GameFx
+from .music import BgmPlayer, StageBgm
 from .scene import Scene
 
 
@@ -34,6 +35,7 @@ class GameScene(Scene):
         on_result: Callable[[Th07World], None] | None = None,
         recorder: ReplayRecorder | None = None,
         fx: GameFx | None = None,
+        music: BgmPlayer | None = None,
     ) -> None:
         super().__init__()
         self.world = world
@@ -41,10 +43,16 @@ class GameScene(Scene):
         self._on_result = on_result
         self._recorder = recorder
         self._fx = fx
+        self._music = music
+        self._bgm = StageBgm(music, world.archive) if music is not None else None
         self._events: list[Event] = []
         world.subscribers.append(self._events.append)
+        if self._bgm is not None:
+            world.subscribers.append(self._bgm.on_event)
         self._snapshot = world.tick(InputFrame())  # 首帧快照(同原 run_game)
         self._merge_fx()
+        if self._bgm is not None:
+            self._bgm.step(world)  # 关头主曲(GameManager.cpp:782)
         if recorder is not None:
             recorder.record_tick(world, InputFrame())  # 首帧也录(回放逐帧对齐)
         self._frame_sounds: list[int] = []
@@ -72,21 +80,37 @@ class GameScene(Scene):
     def step(self, inp: InputFrame) -> None:
         if Button.PAUSE in inp.pressed:
             self.paused = not self.paused
+            if self._music is not None:
+                # 暂停菜单开关联动 BGM 暂停(GameManager.cpp:138-144, 仅 WAV 音源)
+                if self.paused:
+                    self._music.pause()
+                else:
+                    self._music.unpause()
         if self.paused:
             self._frame_sounds = []
             return
         self._snapshot = self.world.tick(inp)
         self._merge_fx()
+        if self._bgm is not None:
+            self._bgm.step(self.world)
         if self._recorder is not None:
             self._recorder.record_tick(self.world, inp)
         self._frame_sounds = list(self.world.frame_sounds)
         w = self.world
         if w.ending is not None:
+            if self._music is not None and w.ending.music:
+                # 结局曲(Ending.cpp:300-301); 结局画面留待, 起播后即被标题曲接管
+                self._music.play(w.ending.music)
             result_flow.finish_ending(w)  # 结局画面留待, 先跳过播放直接结算
         if w.result is not None:
             if self._on_result is not None:
                 self._on_result(w)
             self.done = True
+
+    def on_exit(self) -> None:
+        """离开对局停 BGM(GameManager::DeletedCallback, GameManager.cpp:813)。"""
+        if self._music is not None:
+            self._music.stop()
 
     def snapshot(self) -> SceneSnapshot:
         return self._snapshot

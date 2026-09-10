@@ -17,6 +17,7 @@ from ..replay import ReplayEntry, StageMark, Th07Replay, decode_input, load_inpu
 from ..world import Th07World
 from .fx import GameFx
 from .menu_vms import SE_BACK, SE_MOVE, SE_SELECT, MenuScene, MenuVmSet
+from .music import TITLE_BGM, BgmPlayer, StageBgm
 from .scene import Scene
 
 _BG_SELECT = "select00.jpg"  # MainMenu.cpp:1963
@@ -78,12 +79,14 @@ class ReplayListScene(MenuScene):
         *,
         on_watch: Callable[[ReplayEntry, StageMark, int], Scene],
         on_exit: Callable[[], Scene],
+        music: BgmPlayer | None = None,
     ) -> None:
         super().__init__()
         self._mv = vm_set
         self._entries = entries[:_MAX_FILES]
         self._on_watch = on_watch
         self._on_exit = on_exit
+        self._music = music
         self._next: Scene | None = None
         self._substate = 0
         self._input_delay = 0
@@ -109,6 +112,11 @@ class ReplayListScene(MenuScene):
         return self._slot_stage_no(slot) in self._marks()
 
     # ---- Scene 接口 ----
+    def on_enter(self) -> None:
+        """进列表: 回放回来重载标题 BGM(MainMenu.cpp:233-245), 主菜单进来不重启。"""
+        if self._music is not None:
+            self._music.ensure(TITLE_BGM)
+
     def step(self, inp: InputFrame) -> None:
         self._update_input(inp)
         if self._substate == 0:
@@ -216,8 +224,10 @@ class ReplayListScene(MenuScene):
                 mv.vms[_VM_MODE + i].vm.pending_interrupt = 21  # :2177-2179
             mv.vms[_VM_MODE + self.cursor].vm.pending_interrupt = 20  # :2180
         if self._confirm_pressed():
-            # 起播(:2182-2201): 机体/难度/面由录像决定, 暂停菜单 BGM 停
+            # 起播(:2182-2201): 机体/难度/面由录像决定; :2198 StopAudio
             mark = self._marks()[self._slot_stage_no(self._selected_stage)]
+            if self._music is not None:
+                self._music.stop()
             self._next = self._on_watch(self._entry(), mark, self.cursor)
             self.done = True
             return
@@ -299,6 +309,7 @@ class ReplayWatchScene(Scene):
         *,
         mode: int = 0,
         fx: GameFx | None = None,
+        music: BgmPlayer | None = None,
         on_exit: Callable[[], Scene | None],
     ) -> None:
         super().__init__()
@@ -306,9 +317,13 @@ class ReplayWatchScene(Scene):
         self._on_exit = on_exit
         self._mode = mode
         self._fx = fx
+        self._music = music
+        self._bgm = StageBgm(music, world.archive) if music is not None else None
         self._codes = load_inputs(replay)
         self._events: list[Event] = []
         world.subscribers.append(self._events.append)
+        if self._bgm is not None:
+            world.subscribers.append(self._bgm.on_event)
         # 起播: 喂锚点帧输入拿首帧快照, 再灌快照与原局该帧后状态逐字节对齐
         self._prev_held: frozenset[Button] = frozenset()
         inp = decode_input(self._codes[mark.start_frame], self._prev_held)
@@ -318,6 +333,8 @@ class ReplayWatchScene(Scene):
         self._fx_texts: tuple = ()
         self._step_fx()
         mark.snapshot.apply(world)
+        if self._bgm is not None:
+            self._bgm.step(world)  # 该面主曲(GameManager.cpp:782, 快照回灌后取帧号)
         self._idx = mark.start_frame + 1
         self._frame_sounds: list[int] = []
         self.paused = False
@@ -333,6 +350,12 @@ class ReplayWatchScene(Scene):
     def step(self, inp: InputFrame) -> None:
         if Button.PAUSE in inp.pressed:
             self.paused = not self.paused
+            if self._music is not None:
+                # 暂停联动 BGM(GameManager.cpp:138-144, 仅 WAV 音源)
+                if self.paused:
+                    self._music.pause()
+                else:
+                    self._music.unpause()
         if self.paused:
             self._frame_sounds = []
             if Button.BOMB in inp.pressed:
@@ -353,12 +376,19 @@ class ReplayWatchScene(Scene):
             self._idx += 1
             self._snapshot = w.tick(frame_inp)
             self._step_fx()
+            if self._bgm is not None:
+                self._bgm.step(w)
             self._frame_sounds = list(w.frame_sounds)
             if w.ending is not None:
                 result_flow.finish_ending(w)  # 回放不进结局画面(Gui.cpp:1077-1085)
             if w.result is not None:
                 self.done = True
                 break
+
+    def on_exit(self) -> None:
+        """离开回放停 BGM(GameManager::DeletedCallback, GameManager.cpp:813)。"""
+        if self._music is not None:
+            self._music.stop()
 
     def snapshot(self) -> SceneSnapshot:
         base = self._snapshot

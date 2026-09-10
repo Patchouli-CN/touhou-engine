@@ -18,6 +18,7 @@ from ....engine.score_store import ScoreStore
 from ....schemas.archive import Archive
 from ..results import practice_pscr_key
 from .menu_vms import SE_BACK, SE_SELECT, MenuScene, MenuVmSet, description_texts
+from .music import TITLE_BGM, BgmPlayer
 from .scene import Scene
 
 _BG_TITLE = "title00.jpg"  # MainMenu.cpp:209
@@ -150,6 +151,7 @@ class TitleScene(MenuScene):
         cursor: int = 0,
         practice_mode: bool = False,
         spellcard_count: int = 0,
+        music: BgmPlayer | None = None,
     ) -> None:
         super().__init__()
         self._archive = archive
@@ -172,6 +174,7 @@ class TitleScene(MenuScene):
         self._demo_frames = 0
         self._frame = 0
         self._vm_set = vm_set
+        self._music = music
         self._background = _BG_TITLE
         self._practice = False  # g_GameManager.practice  analog(GameManager.hpp:263)
         self._is_practice_mode = practice_mode
@@ -187,8 +190,15 @@ class TitleScene(MenuScene):
 
     # ---- Scene 接口 ----
     def on_enter(self) -> None:
-        """建 VM 阵列(标题 BGM 起播点: LoadAudio(8, th07_01.mid), BGM 链留待)。"""
+        """建 VM 阵列 + 标题 BGM 起播(MainMenu.cpp:202/2658, 曲还在播不重启)。"""
         self.menu_vms  # 触发懒建(进画面前把 VM 阵列备好)
+        if self._music is not None:
+            self._music.ensure(TITLE_BGM)
+
+    def on_exit(self) -> None:
+        """开局离场停标题 BGM(:1778/:1910); 进子画面(Option/MusicRoom 等)不停。"""
+        if self._music is not None and self.start_request is not None:
+            self._music.stop()
 
     def step(self, inp: InputFrame) -> None:
         self._update_input(inp)
@@ -595,7 +605,7 @@ class TitleScene(MenuScene):
                     return
                 # 开局(:1765-1781): difficulty=cfg; 本篇 currentStage=DUMMYSTAGE(=一面),
                 # Extra/Phantasm currentStage=difficulty+2(0-based)=7/8 面
-                # 标题 BGM 停止点(:1778 StopAudio, BGM 链留待)
+                # (:1778 StopAudio 由 on_exit 消费)
                 d = self.memory.default_difficulty
                 self.start_request = StartRequest(
                     character=self.memory.character * 2 + self.memory.shot_type,

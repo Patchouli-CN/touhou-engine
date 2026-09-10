@@ -9,6 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from ....engine import Event, InputFrame, RenderBackend, SceneSnapshot
+from .music import BgmPlayer
 
 
 class Scene(ABC):
@@ -24,10 +25,10 @@ class Scene(ABC):
         self.done = False  # True 后 runner 取 next_scene() 换画面(None = 退出)
 
     def on_enter(self) -> None:
-        """切进本画面(BGM 起播 hook: BGM 链留待后续单)。"""
+        """切进本画面(BGM 起播 hook 点)。"""
 
     def on_exit(self) -> None:
-        """离开本画面(BGM 停播 hook: BGM 链留待后续单)。"""
+        """离开本画面(BGM 停播 hook 点)。"""
 
     @abstractmethod
     def step(self, inp: InputFrame) -> None:
@@ -51,9 +52,18 @@ class Scene(ABC):
 
 
 def run_scenes(
-    first: Scene, backend: RenderBackend, *, title: str, scale: int | None = None
+    first: Scene,
+    backend: RenderBackend,
+    *,
+    title: str,
+    scale: int | None = None,
+    music: BgmPlayer | None = None,
 ) -> None:
-    """帧驱动主循环: 渲染/采输入 → step → 播 SE, done 就换 scene 直到退出。"""
+    """帧驱动主循环: 渲染/采输入 → step → 播 SE, done 就换 scene 直到退出。
+
+    music 注入即 BGM 链: 每帧 poll() 做 WAV 循环段回卷(与 scene 无关,
+    否则菜单画面的 WAV 曲播完一遍就停)。
+    """
     backend.open(title=title, scale=scale)
     scene = first
     scene.on_enter()
@@ -66,6 +76,8 @@ def run_scenes(
             scene.step(inp)
             backend.play_sounds(scene.drain_sounds())
             _sync_shakes(scene, backend)
+            if music is not None:
+                music.poll()
             if scene.done:
                 scene.on_exit()
                 nxt = scene.next_scene()

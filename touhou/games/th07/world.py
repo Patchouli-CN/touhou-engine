@@ -146,6 +146,8 @@ class Th07World(World):
     death_pos: Vec2 | None = None
     border_boxes: list[ClearBox] = msgspec.field(default_factory=list)
     frame_sounds: list[int] = msgspec.field(default_factory=list)
+    # ECL 音乐指令透出 ("play",路径)/("fadeout",秒); view 的 StageBgm 消费
+    frame_bgm: list[tuple] = msgspec.field(default_factory=list)
     frame_shakes: list[tuple[int, int, int]] = msgspec.field(default_factory=list)
     last_enemy_hit: Vec2 = Vec2(-999.0, -999.0)  # 索敌回写(追踪炸弹目标)
     spellcard_began_frame: int = -1  # 本张符卡宣言帧(超时误判守卫)
@@ -170,6 +172,7 @@ class Th07World(World):
         for sub in self.subscribers:
             ctx.events.subscribe(sub)
         self.frame_sounds.clear()
+        self.frame_bgm.clear()
         self.frame_shakes.clear()
         self.frame_popups.clear()
         self.frame_bonus_score = 0
@@ -789,6 +792,7 @@ def compose_world(
     )
     # ---- 宿主/自机 hook 接线 ----
     host.on_sound = world.frame_sounds.append
+    host.on_bgm = world.frame_bgm.append
     host.on_set_power = lambda v: setattr(world.th07, "power", float(v))
     host.on_add_cherry_plus = world.add_cherry_plus
     host.on_set_boss = world._on_set_boss

@@ -1,7 +1,7 @@
 """Music Room: MusicRoom.cpp 的 scene 化(独立 chain 对象, 不是 MainMenu 的菜单态)。
 
 曲目表/光标/翻页/评论显示逐行对照 MusicRoom.cpp(ProcessInput/OnUpdate/OnDraw);
-曲名与评论来自封包内 musiccmt.txt; 实际发声不做(BGM 链留待后续单, hook 点见注释)。
+曲名与评论来自封包内 musiccmt.txt; 选曲确认 = PlayAudio 起播(BgmPlayer 注入)。
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from ....schemas.anm import parse_anm
 from ....schemas.archive import Archive, load_entry
 from ....schemas.musiccmt import TrackDescriptor, parse_musiccmt
 from .menu_vms import MenuScene
+from .music import BgmPlayer
 from .scene import Scene
 
 _BG = "music.jpg"  # LoadSurface("data/result/music.jpg") (MusicRoom.cpp:243)
@@ -93,9 +94,11 @@ class MusicRoomScene(MenuScene):
         anm_version: int = 2,
         on_exit: Callable[[], Scene],
         tracks: list[TrackDescriptor] | None = None,
+        music: BgmPlayer | None = None,
     ) -> None:
         super().__init__()
         self._on_exit = on_exit
+        self._music = music
         self.tracks = tracks if tracks is not None else _load_tracks(archive)
         self.selected_idx = (
             0  # C++ 初始 0: 进场即显示第 1 首评论(MusicRoom.cpp:366-380)
@@ -135,10 +138,10 @@ class MusicRoomScene(MenuScene):
 
     # ---- Scene 接口 ----
     def on_enter(self) -> None:
-        """进 Music Room(C++ 不停标题 BGM, 播到首次选曲; BGM 链留待后续单)。"""
+        """进 Music Room(C++ 不停标题 BGM, 播到首次选曲; 选曲确认才换歌)。"""
 
     def on_exit(self) -> None:
-        """离开 Music Room(曲目停止点 = 主菜单重载标题 BGM, MainMenu.cpp:2658; BGM 链留待)。"""
+        """离开 Music Room(停播 = 主菜单重载标题 BGM, MainMenu.cpp:2658)。"""
 
     def step(self, inp: InputFrame) -> None:
         self._update_input(inp)
@@ -234,9 +237,9 @@ class MusicRoomScene(MenuScene):
             self._interrupt_titles()  # :94-104
         if self._confirm_pressed() and n:
             self.selected_idx = self.cursor
-            # BGM 播放 hook 点: PlayAudio(track.path) (:106-113) —— music_mode
-            # WAV=thbgm.dat 内 .wav / MIDI=.mid / OFF=无声(Supervisor.cpp:1367-1397),
-            # preloadBgm 时先 StartBGM("thbgm.dat"); BGM 链留待后续单
+            if self._music is not None:
+                # PlayAudio(track.path) (:106-113); music_mode Off 档无声评论照常
+                self._music.play(self.tracks[self.selected_idx].path)
             self._desc_active = self._comment_active(self.tracks[self.selected_idx])
             for m in self._desc_vms:
                 m.pending_interrupt = 1  # :131

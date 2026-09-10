@@ -189,6 +189,7 @@ class Th07EclHost(EclHost):
         self.framerate_multiplier = 1.0  # ex10/11 游戏速度(world 每帧同步给各 VM)
         # ---- 世界接线(world 赋值; None = 未接) ----
         self.on_sound: Callable[[int], None] | None = None
+        self.on_bgm: Callable[[tuple], None] | None = None
         self.on_set_power: Callable[[int], None] | None = None
         self.on_add_cherry_plus: Callable[[int], None] | None = None
         self.on_set_boss: Callable[[int, EclMachine | None], None] | None = None

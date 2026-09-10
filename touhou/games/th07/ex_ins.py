@@ -1,8 +1,9 @@
 """th07 的 24 条 ExIns(boss 特技, EnemyEclInstr.cpp g_EclExInstr)。
 
 语义逐条照抄旧实现 old/touhou/games/th07/ecl_host.py 的 run_ex_instr 分派;
-闪屏/特效/换皮等纯视觉不接(震屏/BGM 事件后续单接)。instr 是 SetExIns/RunExIns
-原指令(args = idx 之后的原始载荷字; C 直接读 args[1].i = 本模块 _arg1)。
+闪屏/特效/换皮等纯视觉不接(震屏事件后续单接; BGM 指令经 host.on_bgm 透出)。
+instr 是 SetExIns/RunExIns 原指令(args = idx 之后的原始载荷字; C 直接读
+args[1].i = 本模块 _arg1)。
 """
 
 from __future__ import annotations
@@ -523,15 +524,18 @@ def _ex18_yuyuko_count_butterfly_bullets(
 def _ex19_yuyuko_fade_out_music(
     host: Th07EclHost, m: EclMachine, instr: EclInstr | None
 ) -> None:
-    # EnemyEclInstr.cpp:919 —— Supervisor::FadeOutMusic(3.0), BGM 事件后续单接
-    pass
+    # EnemyEclInstr.cpp:919 —— Supervisor::FadeOutMusic(3.0)
+    if host.on_bgm is not None:
+        host.on_bgm(("fadeout", 3.0))
 
 
 def _ex20_yuyuko_play_resurrection_bgm(
     host: Th07EclHost, m: EclMachine, instr: EclInstr | None
 ) -> None:
-    # EnemyEclInstr.cpp:925 —— PlayLoadedAudio(2)/"bgm/th07_13b.mid", BGM 事件后续单接
-    pass
+    # EnemyEclInstr.cpp:925 —— PlayLoadedAudio(2), 槽 2 = "bgm/th07_13b.mid"
+    # (GameManager.cpp:787 6 面装载时预载)
+    if host.on_bgm is not None:
+        host.on_bgm(("play", "bgm/th07_13b.mid"))
 
 
 def _ex21_burst_large_bullets2(

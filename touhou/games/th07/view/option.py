@@ -160,7 +160,7 @@ class OptionScene(MenuScene):
         else:
             return
         self._sounds.append(SE_MOVE)
-        # music_mode 变更伴随 StopAudio/重载标题 BGM(:617-637), BGM 链留待后续单
+        # music_mode 变更的 StopAudio/重载标题 BGM(:617-637)由 on_config_changed 消费
         self._notify_changed()
 
     def _confirm(self) -> bool:

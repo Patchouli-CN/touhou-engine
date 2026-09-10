@@ -193,10 +193,10 @@ class PlayerDataScene(MenuScene):
 
     # ---- Scene 接口 ----
     def on_enter(self) -> None:
-        """进 Player Data(标题 BGM 不停, MainMenu.cpp:2656; BGM 链留待后续单)。"""
+        """进 Player Data(标题 BGM 不停, MainMenu.cpp:2656; BgmPlayer 侧无动作)。"""
 
     def on_exit(self) -> None:
-        """离开 Player Data(回主菜单不重载标题 BGM, 同上; BGM 链留待)。"""
+        """离开 Player Data(回主菜单不重载标题 BGM, 同上; 标题 ensure 自然不重启)。"""
 
     def step(self, inp: InputFrame) -> None:
         self._update_input(inp)
