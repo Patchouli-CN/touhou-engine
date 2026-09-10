@@ -72,6 +72,8 @@ class PygameBackend(RenderBackend):
         self._transforms: dict[tuple, pygame.Surface] = {}
         self._sounds: dict[int, pygame.mixer.Sound | None] = {}
         self._mixer_ok = False
+        # 游戏区边框/右栏/裁剪(runner 按 scene.playfield_chrome 同步; 菜单画面关)
+        self.playfield_chrome = True
 
     # ---- 生命周期 ----
     def open(self, *, title: str, scale: int | None = None) -> None:
@@ -130,25 +132,30 @@ class PygameBackend(RenderBackend):
         assert self._frame_surf is not None
         frame = self._frame_surf
         frame.fill(_BG_COLOR)
-        # 右栏积分面板区(原作右栏贴图背景, 近似纯色)
-        pygame.draw.rect(
-            frame, _PANEL_COLOR, (GAME_X + GAME_W, 0, WIN_W - GAME_X - GAME_W, WIN_H)
-        )
-        pygame.draw.rect(
-            frame, _FIELD_COLOR, (GAME_X, GAME_Y, GAME_W, GAME_H)
-        )  # 游戏区底色(背景占位)
-        # 世界 sprite 裁进游戏区(原作场外包边不露实体)
-        frame.set_clip(pygame.Rect(GAME_X, GAME_Y, GAME_W, GAME_H))
+        chrome = self.playfield_chrome
+        if chrome:
+            # 右栏积分面板区(原作右栏贴图背景, 近似纯色)
+            pygame.draw.rect(
+                frame,
+                _PANEL_COLOR,
+                (GAME_X + GAME_W, 0, WIN_W - GAME_X - GAME_W, WIN_H),
+            )
+            pygame.draw.rect(
+                frame, _FIELD_COLOR, (GAME_X, GAME_Y, GAME_W, GAME_H)
+            )  # 游戏区底色(背景占位)
+            # 世界 sprite 裁进游戏区(原作场外包边不露实体)
+            frame.set_clip(pygame.Rect(GAME_X, GAME_Y, GAME_W, GAME_H))
         for spr in sorted(snapshot.sprites, key=lambda s: s.z):
             self._blit_sprite(frame, spr)
         frame.set_clip(None)
-        # 游戏区边框环(画在 sprite 之后, 保证边线干净)
-        pygame.draw.rect(
-            frame,
-            _BORDER_COLOR,
-            (GAME_X - 2, GAME_Y - 2, GAME_W + 4, GAME_H + 4),
-            2,
-        )
+        if chrome:
+            # 游戏区边框环(画在 sprite 之后, 保证边线干净)
+            pygame.draw.rect(
+                frame,
+                _BORDER_COLOR,
+                (GAME_X - 2, GAME_Y - 2, GAME_W + 4, GAME_H + 4),
+                2,
+            )
         for text in snapshot.texts:
             self._blit_text(frame, text.text, text.x, text.y, text.size, text.rgba)
         if self._clock is not None:

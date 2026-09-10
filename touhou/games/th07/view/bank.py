@@ -5,9 +5,13 @@
   寻址切图; entry 纹理缺失/键越界一律落兜底。
 - 语义键(``enemy:3``/``item:1``/``shot:5``/``misc:hitpoint``): 无 anm 数据时的
   占位, 画按 key 哈希取色的色块(hitpoint 为程序化红点, 在 backend 特判)。
+另支持整图键(``title00.jpg`` 等封包内图片文件名): 整图不解包直接当 Surface,
+标题/选择页背景用。
 """
 
 from __future__ import annotations
+
+import io
 
 import pygame
 
@@ -71,6 +75,12 @@ class SurfaceBank:
                     surf = self._cut(anm, slot.entry, slot.sprite)
                     if surf is not None:
                         return surf
+        if self._archive is not None and key.lower().endswith((".jpg", ".png")):
+            try:
+                surf = pygame.image.load(io.BytesIO(load_entry(self._archive, key)))
+                return surf.convert() if pygame.display.get_init() else surf
+            except (KeyError, pygame.error):
+                pass
         return _fallback_surface(key)
 
     @staticmethod
