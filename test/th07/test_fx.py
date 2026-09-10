@@ -45,6 +45,7 @@ def _stub_world(**kw) -> SimpleNamespace:
         ),
         th07=SimpleNamespace(power=0.0, cherry=0, cherry_max=10000, cherry_start=0),
         store=SimpleNamespace(catk=[]),
+        msg_vm=None,
     )
     base.update(kw)
     return SimpleNamespace(**base)

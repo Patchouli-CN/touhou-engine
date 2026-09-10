@@ -6,7 +6,8 @@ ANM VM 用独立 Rng(0) 不碰 sim rng; 贴图键与快照生产同一链式 id 
 EnemyDied→爆散 (EnemyManager.cpp:951-1020), PlayerDied→大爆 (Player.cpp:1233-1234),
 SpellcardBegan→宣言横幅+魔法阵+符卡环 (EclManager.cpp:658-708),
 MsgMusicChange→标题 BGM 行 (Gui.cpp:959-973), 收点/BONUS 弹字经
-world.frame_popups/frame_bonus_score 透出消费。
+world.frame_popups/frame_bonus_score 透出消费, 对话立绘每帧采 world.msg_vm
+透出状态 (Gui.cpp:848-898/1115-1154)。
 
 无 anm 数据(archive None)时全层静默, 与快照的语义键兜底同理。
 """
@@ -24,6 +25,7 @@ from ....engine.rng import Rng
 from ....schemas.anm import parse_anm
 from ....schemas.archive import load_entry
 from ..world import Th07World
+from .dialog import DialogPortraits
 from .effects import FxParticles
 from .popups import BonusBanners, ScorePopups, StageTitle, StatusBanner
 from .spellcard import _FACE_ANM, _SC_BG_VMS, MagicCircle, SpellcardBanner, SpellRing
@@ -39,6 +41,7 @@ class GameFx:
         self._banks: dict[str, AnmBank | None] = {}
         self._preloaded_stage = -1
         self.particles = FxParticles()
+        self.dialog = DialogPortraits(self._rng)
         self.banner = SpellcardBanner(self._rng)
         self.circle = MagicCircle(self._rng)
         self.ring = SpellRing(self._rng)
@@ -154,6 +157,7 @@ class GameFx:
         sp, tx = self.banner.step(w)
         sprites += sp
         texts += tx
+        sprites += self.dialog.step(w, self._bank)
         sprites += self.title.step()
         sprites += self.popups.step((w.player.pos.x, w.player.pos.y))
         sprites += self.status.step(w)
