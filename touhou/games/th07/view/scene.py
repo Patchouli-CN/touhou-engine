@@ -65,6 +65,7 @@ def run_scenes(
                 break
             scene.step(inp)
             backend.play_sounds(scene.drain_sounds())
+            _sync_shakes(scene, backend)
             if scene.done:
                 scene.on_exit()
                 nxt = scene.next_scene()
@@ -80,3 +81,11 @@ def run_scenes(
 def _sync_chrome(scene: Scene, backend: RenderBackend) -> None:
     """把 scene 的游戏区 chrome 开关同步给后端(有该属性的后端才吃)。"""
     setattr(backend, "playfield_chrome", scene.playfield_chrome)
+
+
+def _sync_shakes(scene: Scene, backend: RenderBackend) -> None:
+    """把 scene 本帧的震屏事件喂给后端(两侧都 duck-typed, 缺任一侧即跳过)。"""
+    shakes = getattr(scene, "frame_shakes", None)
+    register = getattr(backend, "register_shakes", None)
+    if shakes and register is not None:
+        register(shakes)

@@ -85,16 +85,27 @@ class SurfaceBank:
 
     @staticmethod
     def _cut(anm: AnmFile, entry_idx: int, sprite) -> pygame.Surface | None:
-        """从 entry 整图 RGBA 切出 sprite 矩形转 Surface。"""
+        """从 entry 整图 RGBA 切出 sprite 矩形转 Surface。
+
+        区域超出纹理按 WRAP 平铺(D3D 默认寻址; eff01 等的符卡背景 sprite
+        384x448 大于 256x256 纹理, old sprite_bank.py:30-42 同语义)。
+        """
         entry = anm.entries[entry_idx]
         if entry.rgba is None:
             return None  # 外链纹理未回填(th07 实装数据不存在, 见调查库)
         spr = sprite
+        tw, th = entry.tex_width, entry.tex_height
         rows = bytearray(spr.w * spr.h * 4)
         for row in range(spr.h):
-            src = ((spr.y + row) * entry.tex_width + spr.x) * 4
-            rows[row * spr.w * 4 : (row + 1) * spr.w * 4] = entry.rgba[
-                src : src + spr.w * 4
-            ]
+            sy = (spr.y + row) % th
+            dx, remaining, sx = 0, spr.w, spr.x % tw
+            while remaining:
+                n = min(remaining, tw - sx)
+                src = (sy * tw + sx) * 4
+                dst = (row * spr.w + dx) * 4
+                rows[dst : dst + n * 4] = entry.rgba[src : src + n * 4]
+                dx += n
+                remaining -= n
+                sx = 0
         surf = pygame.image.frombuffer(bytes(rows), (spr.w, spr.h), "RGBA")
         return surf.convert_alpha() if pygame.display.get_init() else surf

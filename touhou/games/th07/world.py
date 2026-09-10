@@ -149,6 +149,12 @@ class Th07World(World):
     frame_shakes: list[tuple[int, int, int]] = msgspec.field(default_factory=list)
     last_enemy_hit: Vec2 = Vec2(-999.0, -999.0)  # 索敌回写(追踪炸弹目标)
     spellcard_began_frame: int = -1  # 本张符卡宣言帧(超时误判守卫)
+    spellcard_name: str = ""  # 本张符卡名(_on_begin_spellcard 记, 宣言横幅用)
+    # 收点弹字透出 (x, y, 代码值(-1=PowerUp 字形), ARGB, 槽位); view 消费
+    frame_popups: list[tuple[float, float, int, int, int]] = msgspec.field(
+        default_factory=list
+    )
+    frame_bonus_score: int = 0  # 清场 BONUS 横幅分(代码值, 0=本帧无), view 消费
 
     # ---- 驱动 ----
     def tick(self, input: InputFrame | None = None) -> SceneSnapshot:
@@ -165,6 +171,8 @@ class Th07World(World):
             ctx.events.subscribe(sub)
         self.frame_sounds.clear()
         self.frame_shakes.clear()
+        self.frame_popups.clear()
+        self.frame_bonus_score = 0
         if self.game_over:
             # 无残机死亡(C++ 进 retry 菜单): 可续关则画面冻结, 等 view 选择
             # (continue_play/finalize_game_over); 不可续关(Extra·Phantasm/
@@ -274,6 +282,7 @@ class Th07World(World):
         )
         # catk: attempts[shot]/[合计槽] ++ (EclManager.cpp:709-744)
         self.catk_idx = idx
+        self.spellcard_name = name  # 宣言横幅取名(事件不带名字段)
         self.store.record_spellcard_attempt(idx, name, self.character)
 
     def _on_end_spellcard(self, m: EclMachine) -> None:

@@ -2,6 +2,9 @@
 
 窗口 640x480 逻辑像素 × scale; 每帧 = 事件采集 → 快照合成 → flip → 60fps 帧控。
 SE 走 schemas/sound.py 的槽位表(wav 从数据包懒加载, 无声卡/无数据静音降级)。
+z 序约定: z<100 = 游戏区空间(裁剪进 384x448 + 震屏偏移), z>=100 = Gui 层
+(符卡宣言/关卡标题/弹字, 画全窗口不裁剪不振; C++ Gui 绘制前清零 offset,
+Gui.cpp:159-160)。震屏 = register_shakes 登记 + 每帧衰减偏移(ScreenEffect)。
 """
 
 from __future__ import annotations
@@ -17,11 +20,13 @@ from ....schemas.archive import Archive, load_entry
 from ....schemas.sound import SOUND_EFFECTS
 from ..snapshot import GAME_H, GAME_W, GAME_X, GAME_Y, WIN_H, WIN_W
 from .bank import SurfaceBank
+from .shake import ScreenShake
 
 _BG_COLOR = (8, 12, 30)  # 窗外区底色
 _PANEL_COLOR = (14, 18, 42)  # 右栏积分面板底色
 _FIELD_COLOR = (10, 14, 36)  # 游戏区底色(3D 背景留待后续单, 纯色占位)
 _BORDER_COLOR = (58, 66, 108)  # 游戏区边框(原作为边框贴图, 近似色环)
+Z_GUI = 100.0  # z>=此值 = Gui 层: 不裁剪不振屏(特效层横幅/标题/弹字)
 
 #: 默认键位(th07 原作: Z=射击 X=炸弹 Shift=低速 Ctrl=快进 Esc=暂停)
 _KEYMAP: dict[int, Button] = {
@@ -71,11 +76,18 @@ class PygameBackend(RenderBackend):
         self._fonts: dict[int, pygame.font.Font] = {}
         self._transforms: dict[tuple, pygame.Surface] = {}
         self._sounds: dict[int, pygame.mixer.Sound | None] = {}
+        self._veils: dict[int, pygame.Surface] = {}  # 符卡黑罩 alpha 档缓存
         self._mixer_ok = False
         # 游戏区边框/右栏/裁剪(runner 按 scene.playfield_chrome 同步; 菜单画面关)
         self.playfield_chrome = True
         # SE 总开关(cfg.playSounds, 由装配处同步; SoundPlayer playSounds 语义)
         self.sounds_enabled = True
+        self._shake = ScreenShake()
+
+    def register_shakes(self, shakes: list[tuple[int, int, int]]) -> None:
+        """登记本帧震屏事件 (BombEffects type=1; runner 从 scene 同步)。"""
+        for duration, amp_start, amp_end in shakes:
+            self._shake.register(duration, amp_start, amp_end)
 
     # ---- 生命周期 ----
     def open(self, *, title: str, scale: int | None = None) -> None:
@@ -135,6 +147,7 @@ class PygameBackend(RenderBackend):
         frame = self._frame_surf
         frame.fill(_BG_COLOR)
         chrome = self.playfield_chrome
+        sdx, sdy = self._shake.tick() if chrome else (0, 0)
         if chrome:
             # 右栏积分面板区(原作右栏贴图背景, 近似纯色)
             pygame.draw.rect(
@@ -147,8 +160,15 @@ class PygameBackend(RenderBackend):
             )  # 游戏区底色(背景占位)
             # 世界 sprite 裁进游戏区(原作场外包边不露实体)
             frame.set_clip(pygame.Rect(GAME_X, GAME_Y, GAME_W, GAME_H))
+        gui_layer = False  # z 有序: 一过 Z_GUI 即关裁剪/停震屏偏移(Gui 层)
         for spr in sorted(snapshot.sprites, key=lambda s: s.z):
-            self._blit_sprite(frame, spr)
+            if chrome and not gui_layer and spr.z >= Z_GUI:
+                frame.set_clip(None)
+                gui_layer = True
+            if gui_layer:
+                self._blit_sprite(frame, spr, 0, 0)
+            else:
+                self._blit_sprite(frame, spr, sdx, sdy)
         frame.set_clip(None)
         if chrome:
             # 游戏区边框环(画在 sprite 之后, 保证边线干净)
@@ -178,12 +198,22 @@ class PygameBackend(RenderBackend):
         if self._clock is not None:
             self._clock.tick(60)
 
-    def _blit_sprite(self, frame: pygame.Surface, spr) -> None:
+    def _blit_sprite(self, frame: pygame.Surface, spr, dx: int, dy: int) -> None:
         if spr.image == "misc:hitpoint":
             # focus 判定点: 红环白点(程序化, 无贴图)
-            x, y = int(spr.x), int(spr.y)
+            x, y = int(spr.x) + dx, int(spr.y) + dy
             pygame.draw.circle(frame, (255, 60, 60), (x, y), 5, 1)
             pygame.draw.circle(frame, (255, 255, 255), (x, y), 2)
+            return
+        if spr.image == "misc:veil":
+            # 符卡黑罩(程序化): 游戏区整面叠黑, alpha 由快照给(Stage.cpp state 1/2)
+            veil = self._veils.get(spr.alpha)
+            if veil is None:
+                veil = pygame.Surface((GAME_W, GAME_H))
+                veil.fill((0, 0, 0))
+                veil.set_alpha(spr.alpha)
+                self._veils[spr.alpha] = veil
+            frame.blit(veil, (GAME_X + dx, GAME_Y + dy))
             return
         img = self.bank.get(spr.image)
         sx = spr.scale * spr.scale_x
@@ -194,13 +224,15 @@ class PygameBackend(RenderBackend):
             # (AnmManager.cpp:716-722: DESTBLEND=ONE)
             img = self._tint(img, spr.color, spr.alpha)
             frame.blit(
-                img, self._dest(img, spr.x, spr.y), special_flags=pygame.BLEND_ADD
+                img,
+                self._dest(img, spr.x + dx, spr.y + dy),
+                special_flags=pygame.BLEND_ADD,
             )
         elif spr.color != (255, 255, 255) or spr.alpha < 255:
             img = self._tint(img, spr.color, spr.alpha)
-            frame.blit(img, self._dest(img, spr.x, spr.y))
+            frame.blit(img, self._dest(img, spr.x + dx, spr.y + dy))
         else:
-            frame.blit(img, self._dest(img, spr.x, spr.y))
+            frame.blit(img, self._dest(img, spr.x + dx, spr.y + dy))
 
     @staticmethod
     def _dest(img: pygame.Surface, x: float, y: float) -> tuple[int, int]:

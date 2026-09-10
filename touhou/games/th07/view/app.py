@@ -18,6 +18,7 @@ from ..replay import (
 )
 from ..world import Th07World, compose_world
 from .backend import PygameBackend
+from .fx import GameFx
 from .game_scene import GameScene
 from .menu_vms import MenuVmSet
 from .musicroom import MusicRoomScene
@@ -173,6 +174,7 @@ def run_app(
             replay,
             mark,
             mode=mode,
+            fx=GameFx(world, anm_version=assembly.scripts.anm_version),
             on_exit=lambda: make_replay_list(
                 None, on_exit=lambda: make_title(cursor=_MENU_REPLAY)
             ),
@@ -190,6 +192,7 @@ def run_app(
             practice=req.practice,
         )
         recorder = ReplayRecorder(world, name=store.last_name)
+        fx = GameFx(world, anm_version=assembly.scripts.anm_version)
         if req.practice:
             # 练习对局回来: 主菜单 INIT 直跳练习选择链落到选面页
             # (isPracticeMode, MainMenu.cpp:2637-2643)
@@ -213,6 +216,7 @@ def run_app(
             on_exit=on_exit,  # 结算画面 ResultScreen 留待后续单, 现回标题
             on_result=on_result,
             recorder=recorder,
+            fx=fx,
         )
 
     try:
@@ -245,6 +249,10 @@ def run_game(
         )
     if backend is None:
         backend = PygameBackend(world.archive, anm_version=assembly.scripts.anm_version)
-    scene = GameScene(world, on_exit=lambda: None)
+    scene = GameScene(
+        world,
+        on_exit=lambda: None,
+        fx=GameFx(world, anm_version=assembly.scripts.anm_version),
+    )
     run_scenes(scene, backend, title=assembly.title, scale=scale)
     return world

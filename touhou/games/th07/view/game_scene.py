@@ -9,6 +9,7 @@ from ....engine.input import Button
 from .. import result as result_flow
 from ..replay import ReplayRecorder
 from ..world import Th07World
+from .fx import GameFx
 from .scene import Scene
 
 
@@ -17,8 +18,10 @@ class GameScene(Scene):
 
     recorder 注入即录制(ReplayManager::OnUpdate 每帧一记, ReplayManager.cpp:33-77):
     每个喂给 tick 的 InputFrame 录一码, 过面自动打锚点, 结算时由装配处落盘。
-    留待: GameOver 续关画面(world 冻结等 view, 续关单接 continue_play/
-    finalize_game_over); 6 面结局播放(现直接 finish_ending 跳过, 结局单接)。
+    fx 注入即特效层(敌死亡爆散/符卡宣言/关卡标题/弹字): 每帧 tick 后 step,
+    产出合进快照。留待: GameOver 续关画面(world 冻结等 view, 续关单接
+    continue_play/finalize_game_over); 6 面结局播放(现直接 finish_ending 跳过,
+    结局单接)。
     """
 
     playfield_chrome = True
@@ -30,19 +33,41 @@ class GameScene(Scene):
         on_exit: Callable[[], Scene | None],
         on_result: Callable[[Th07World], None] | None = None,
         recorder: ReplayRecorder | None = None,
+        fx: GameFx | None = None,
     ) -> None:
         super().__init__()
         self.world = world
         self._on_exit = on_exit
         self._on_result = on_result
         self._recorder = recorder
+        self._fx = fx
         self._events: list[Event] = []
         world.subscribers.append(self._events.append)
         self._snapshot = world.tick(InputFrame())  # 首帧快照(同原 run_game)
+        self._merge_fx()
         if recorder is not None:
             recorder.record_tick(world, InputFrame())  # 首帧也录(回放逐帧对齐)
         self._frame_sounds: list[int] = []
         self.paused = False
+
+    def _merge_fx(self) -> None:
+        """特效层产出合进本帧快照(frozen Struct 重建, 原快照不动)。"""
+        if self._fx is None:
+            return
+        sprites, texts = self._fx.step()
+        base = self._snapshot
+        self._snapshot = SceneSnapshot(
+            base.frame,
+            base.sprites + tuple(sprites),
+            base.texts + tuple(texts),
+            base.effects,
+        )
+
+    @property
+    def frame_shakes(self) -> list[tuple[int, int, int]]:
+        """本帧震屏事件(runner 同步给后端消费, ScreenEffect 的 type=1)。"""
+        # 暂停帧 sim 不走, frame_shakes 是上一 tick 的残留, 不重复消费
+        return [] if self.paused else self.world.frame_shakes
 
     def step(self, inp: InputFrame) -> None:
         if Button.PAUSE in inp.pressed:
@@ -51,6 +76,7 @@ class GameScene(Scene):
             self._frame_sounds = []
             return
         self._snapshot = self.world.tick(inp)
+        self._merge_fx()
         if self._recorder is not None:
             self._recorder.record_tick(self.world, inp)
         self._frame_sounds = list(self.world.frame_sounds)

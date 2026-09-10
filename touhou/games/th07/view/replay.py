@@ -15,6 +15,7 @@ from ....engine.input import Button
 from .. import result as result_flow
 from ..replay import ReplayEntry, StageMark, Th07Replay, decode_input, load_inputs
 from ..world import Th07World
+from .fx import GameFx
 from .menu_vms import SE_BACK, SE_MOVE, SE_SELECT, MenuScene, MenuVmSet
 from .scene import Scene
 
@@ -297,12 +298,14 @@ class ReplayWatchScene(Scene):
         mark: StageMark,
         *,
         mode: int = 0,
+        fx: GameFx | None = None,
         on_exit: Callable[[], Scene | None],
     ) -> None:
         super().__init__()
         self.world = world
         self._on_exit = on_exit
         self._mode = mode
+        self._fx = fx
         self._codes = load_inputs(replay)
         self._events: list[Event] = []
         world.subscribers.append(self._events.append)
@@ -311,10 +314,21 @@ class ReplayWatchScene(Scene):
         inp = decode_input(self._codes[mark.start_frame], self._prev_held)
         self._prev_held = inp.held
         self._snapshot = world.tick(inp)
+        self._fx_sprites: tuple = ()
+        self._fx_texts: tuple = ()
+        self._step_fx()
         mark.snapshot.apply(world)
         self._idx = mark.start_frame + 1
         self._frame_sounds: list[int] = []
         self.paused = False
+
+    def _step_fx(self) -> None:
+        """特效层逐 tick 推进(快进时与 sim 同倍率), 产出留待末帧合并。"""
+        if self._fx is None:
+            return
+        sprites, texts = self._fx.step()
+        self._fx_sprites = tuple(sprites)
+        self._fx_texts = tuple(texts)
 
     def step(self, inp: InputFrame) -> None:
         if Button.PAUSE in inp.pressed:
@@ -338,6 +352,7 @@ class ReplayWatchScene(Scene):
             self._prev_held = frame_inp.held
             self._idx += 1
             self._snapshot = w.tick(frame_inp)
+            self._step_fx()
             self._frame_sounds = list(w.frame_sounds)
             if w.ending is not None:
                 result_flow.finish_ending(w)  # 回放不进结局画面(Gui.cpp:1077-1085)
@@ -346,7 +361,20 @@ class ReplayWatchScene(Scene):
                 break
 
     def snapshot(self) -> SceneSnapshot:
-        return self._snapshot
+        base = self._snapshot
+        if not self._fx_sprites and not self._fx_texts:
+            return base
+        return SceneSnapshot(
+            base.frame,
+            base.sprites + self._fx_sprites,
+            base.texts + self._fx_texts,
+            base.effects,
+        )
+
+    @property
+    def frame_shakes(self) -> list[tuple[int, int, int]]:
+        """本帧震屏事件(runner 同步给后端; 暂停帧不重复消费)。"""
+        return [] if self.paused else self.world.frame_shakes
 
     def events(self) -> tuple[Event, ...]:
         out = tuple(self._events)

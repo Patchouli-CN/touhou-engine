@@ -1,8 +1,9 @@
 """th07 的事件结算: 把引擎事件入账到 globals/items/boss(世界在帧末订阅 EventStream)。
 
 分值/樱点/掉落/奖残语义逐条照抄旧实现(old/touhou/games/th07/world.py +
-items.py + player.py; C++ 出处随各函数单行注释)。弹字/横幅/音效是 view 消费面,
-本模块不产。
+items.py + player.py; C++ 出处随各函数单行注释)。弹字/横幅的数值经
+world.frame_popups/frame_bonus_score 透出给 view(渲染在 view 层), 音效由
+world.frame_sounds 透出, 本模块不直接产 view 物。
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from ...engine.player import (
 )
 from ...utils.math import Vec2
 from .bomb import BOMB_SOUNDS, SE_BOMB
-from .data import DROP_TABLE, FULL_POWER, FULL_POWER_SCORE_BONUS
+from .data import DROP_TABLE, FULL_POWER, FULL_POWER_SCORE_BONUS, POWER_LEVELS
 from .items import ItemKind, next_needed_point_items_for_extend
 from .msg import apply_next_level, apply_stage_results
 from .player import settle_death
@@ -43,6 +44,27 @@ _GRAZE_TOTAL_CAP = 999999
 
 # 小怪随机掉落(itemDrop==-1): 每 3 杀掉 1, 表索引独立递增 (EnemyManager 死亡分支)
 _RAND_DROP_EVERY = 3
+
+# 弹字颜色 (ItemManager.cpp CreatePopup1/2 实参, ARGB; 出处 old items.py:98-102)
+POPUP_WHITE = 0xFFFFFFFF
+POPUP_YELLOW = 0xFFFFFF00  # POC 线上/满樱收点满分
+POPUP_POWERUP = 0xFFFFC0A0  # 火力升档 PowerUp 字形
+POPUP_CHERRY_GAIN = 0xFFFF4040  # 樱点系加分
+
+
+def _popup(
+    w: Th07World, x: float, y: float, value: int, color: int, kind: int = 1
+) -> None:
+    """登记一个收点弹字(CreatePopup1/2 的数值透出, 渲染在 view 层)。"""
+    w.frame_popups.append((x, y, value, color, kind))
+
+
+def _power_level(power: float) -> int:
+    """火力档位 (ItemManager.cpp 的 while ((i32)currentPower >= g_PowerLevels[j]) j++)。"""
+    n = 0
+    while n < len(POWER_LEVELS) and int(power) >= POWER_LEVELS[n]:
+        n += 1
+    return n
 
 
 def _stage_factor(stage: int) -> int:
@@ -106,6 +128,7 @@ def _on_enemy_died(w: Th07World, ev: EnemyDied) -> None:
         removed = w.host.remove_all_enemies(8000, removed)
         if removed:
             w.add_score(removed)
+            w.frame_bonus_score = removed  # ShowBonusScore (EnemyManager.cpp:1007)
 
 
 def despawn_bullets_bonus(w: Th07World) -> int:
@@ -162,6 +185,7 @@ def _on_spellcard_ended(w: Th07World, ev: SpellcardEnded) -> None:
     removed = w.host.remove_all_enemies(8000, removed)
     if removed:
         w.add_score(removed)
+        w.frame_bonus_score = removed  # ShowBonusScore (EclManager.cpp:777)
 
 
 def _on_spellcard_failed(w: Th07World, ev: SpellcardFailed) -> None:
@@ -279,18 +303,32 @@ def _on_item_collected(w: Th07World, ev: ItemCollected) -> None:
             g.power_overflow = n
             code = FULL_POWER_SCORE_BONUS[min(n, len(FULL_POWER_SCORE_BONUS) - 1)]
             w.add_score(code)
+            # C++ 表末 12000 < 12800, 恒白 (ItemManager.cpp:211)
+            _popup(w, ev.x, ev.y, code, POPUP_YELLOW if code >= 12800 else POPUP_WHITE)
         else:
             _add_power(w, 1)
             w.add_score(10)
             g.power_overflow = 0
             if g.power >= FULL_POWER:
                 _reach_full_power(w, spellcard_exempt=True)
+            # 火力升档弹 PowerUp 字形, 否则弹 10 (ItemManager.cpp:236-248)
+            if _power_level(g.power) != _power_level(g.power - 1):
+                _popup(w, ev.x, ev.y, -1, POPUP_POWERUP)
+            else:
+                _popup(w, ev.x, ev.y, 10, POPUP_WHITE)
     elif ev.kind == ItemKind.POWER_BIG:
         if g.power < FULL_POWER:
             _add_power(w, 8)
             w.add_score(10)
             if g.power >= FULL_POWER:
                 _reach_full_power(w, spellcard_exempt=True)
+            # 升档判断 (ItemManager.cpp:354-366)
+            if _power_level(g.power) != _power_level(g.power - 8):
+                _popup(w, ev.x, ev.y, -1, POPUP_POWERUP)
+            else:
+                _popup(w, ev.x, ev.y, 10, POPUP_WHITE)
+        # 满火力后大 P 无分; C++ :330 的弹字用的是上一道具残留的 itemScore
+        # (ZUN bloat, 值无意义), 这里不弹
     elif ev.kind == ItemKind.BOMB:
         if g.bombs < 8:
             g.bombs += 1
@@ -300,18 +338,30 @@ def _on_item_collected(w: Th07World, ev: ItemCollected) -> None:
     elif ev.kind == ItemKind.FULL_POWER:
         if g.power < FULL_POWER:
             _reach_full_power(w, spellcard_exempt=False)
+            _popup(w, ev.x, ev.y, -1, POPUP_POWERUP)  # ItemManager.cpp:386
         g.power = float(FULL_POWER)
         w.add_score(1000)
+        _popup(w, ev.x, ev.y, 1000, POPUP_WHITE)  # ItemManager.cpp:392
     elif ev.kind == ItemKind.POINT:
-        w.add_score(_point_code(w, ev))
+        code = _point_code(w, ev)
+        w.add_score(code)
+        _popup(
+            w,
+            ev.x,
+            ev.y,
+            code,
+            POPUP_YELLOW if (ev.y < w.items.poc_y or ev.auto_collect) else POPUP_WHITE,
+        )  # ItemManager.cpp:272
         g.point_items_collected_this_stage += 1
         g.point_items_collected_for_extend += 1
         g.increase_subrank(10 if ev.y < 128.0 else 3)  # C++ 硬编码 128.0(非 pocY)
         _point_extends(w)
     elif ev.kind == ItemKind.POINT_BULLET:
         # 非 bomb 中: 擦弹分 + cherryPlus+20 (ItemManager.cpp:397-408)
-        w.add_score(_graze_item_score(g.graze_in_total))
+        code = _graze_item_score(g.graze_in_total)
+        w.add_score(code)
         w.add_cherry_plus(20)
+        _popup(w, ev.x, ev.y, code, POPUP_WHITE, 2)  # CreatePopup2 (:408)
     elif ev.kind == ItemKind.CHERRY:
         if g.cherry >= g.cherry_max:
             # 满樱时按 POINT 计分(无樱差加成), ≤5000 显示 (ItemManager.cpp:428-436)
@@ -319,14 +369,29 @@ def _on_item_collected(w: Th07World, ev: ItemCollected) -> None:
                 code = 50000
             else:
                 code = 50000 - int(ev.y - w.items.poc_y) * 100
-            w.add_score(code - code % 10)
+            code -= code % 10
+            w.add_score(code)
+            _popup(
+                w,
+                ev.x,
+                ev.y,
+                code,
+                POPUP_YELLOW
+                if (ev.y < w.items.poc_y or ev.auto_collect)
+                else POPUP_WHITE,
+            )  # ItemManager.cpp:434
         w.add_cherry_plus(1000 + g.spell_cards_captured * 100)
     elif ev.kind == ItemKind.CHERRY_SMALL:
         w.add_cherry_plus(30)
         g.add_cherry(70)
     elif ev.kind == ItemKind.STAR:
-        w.add_score(_graze_item_score(g.graze_in_total))
+        code = _graze_item_score(g.graze_in_total)
+        w.add_score(code)
         w.add_cherry_plus(100)
+        if g.cherry >= g.cherry_max:
+            _popup(w, ev.x, ev.y, code, POPUP_WHITE)  # ItemManager.cpp:453
+        else:
+            _popup(w, ev.x, ev.y, 100, POPUP_CHERRY_GAIN)  # ItemManager.cpp:459
 
 
 def _on_item_dropped(w: Th07World, ev: ItemDropped) -> None:
