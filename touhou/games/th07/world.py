@@ -1,9 +1,9 @@
 """th07 的对局世界: engine field 组合 + 帧管线 + ECL 接线 + 事件结算入口。
 
-帧序对齐 old/touhou/games/th07/world.py 的 tick(748-1008): 同步 → 时间轴 →
-敌 ECL → 结界 → 自机 → boss → 显示分追赶(LOGIC); 自机弹/敌弹/道具/激光
-(MOVEMENT); 体术 → 自机弹伤害 → 敌弹判定 → 结界清弹圆 → 收集 → 激光判定
-(COLLISION)。炸弹/msg/换关不在本切片(留待)。
+帧序对齐 old/touhou/games/th07/world.py 的 tick(748-1008): 同步 → bomb(触发/
+推进/清弹/伤害盒) → 时间轴 → 敌 ECL → 结界 → 自机 → boss → 显示分追赶
+(LOGIC); 自机弹/敌弹/道具/激光(MOVEMENT); 体术 → 自机弹伤害 → 敌弹判定 →
+结界清弹圆 → 收集 → 激光判定(COLLISION)。msg/换关不在本切片(留待)。
 """
 
 from __future__ import annotations
@@ -11,11 +11,13 @@ from __future__ import annotations
 import msgspec
 
 from ...engine import (
+    BombClearSystem,
+    BombDamageSystem,
     BossField,
     BulletCollisionSystem,
     BulletField,
     BulletMovementSystem,
-    EnemyContactSystem,
+    Button,
     EnemyShotSystem,
     FrameContext,
     GameAssembly,
@@ -38,7 +40,7 @@ from ...engine import (
     World,
     tick_frame,
 )
-from ...engine.bomb import ClearBox
+from ...engine.bomb import BOMB_RESPAWN_PENALTY, ClearBox
 from ...engine.ecl import EclMachine, TimelineRunner
 from ...engine.enemies import Enemy
 from ...engine.events import Event, EventHandler
@@ -48,6 +50,13 @@ from ...schemas.archive import load_entry, open_archive
 from ...schemas.shot_data import parse_sht
 from ...utils.math import Vec2
 from . import settle
+from .bomb import (
+    BOMB_SUBRANK_PENALTY,
+    EVENT_REMOVE_ALL_ITEMS,
+    EVENT_STOP_BULLET_MOVEMENT,
+    Th07BombContext,
+    Th07BombField,
+)
 from .data import BULLET_TYPE_SPECS, SPELLCARD_SCORE
 from .ecl_host import Th07EclHost
 from .ecl_table import parse_ecl
@@ -75,6 +84,10 @@ class Th07World(World):
     items: Th07ItemField = msgspec.field(default_factory=Th07ItemField)
     enemies: Th07EnemyField = msgspec.field(default_factory=Th07EnemyField)
     globals: GlobalsField = msgspec.field(default_factory=GlobalsField)
+    bomb: Th07BombField = msgspec.field(default_factory=Th07BombField)
+    bomb_ctx: Th07BombContext = msgspec.field(
+        default_factory=lambda: Th07BombContext(player_pos=Vec2(0.0, 0.0))
+    )
     # ---- 作品状态 ----
     th07: Th07Globals = msgspec.field(default_factory=Th07Globals)
     options: OptionMachine = msgspec.field(default_factory=OptionMachine)
@@ -98,6 +111,8 @@ class Th07World(World):
     death_pos: Vec2 | None = None
     border_boxes: list[ClearBox] = msgspec.field(default_factory=list)
     frame_sounds: list[int] = msgspec.field(default_factory=list)
+    frame_shakes: list[tuple[int, int, int]] = msgspec.field(default_factory=list)
+    last_enemy_hit: Vec2 = Vec2(-999.0, -999.0)  # 索敌回写(追踪炸弹目标)
     spellcard_began_frame: int = -1  # 本张符卡宣言帧(超时误判守卫)
 
     # ---- 驱动 ----
@@ -109,6 +124,7 @@ class Th07World(World):
         for sub in self.subscribers:
             ctx.events.subscribe(sub)
         self.frame_sounds.clear()
+        self.frame_shakes.clear()
         if self.game_over:
             # 无残机死亡: 画面冻结(续关/结算留待), 仍出快照并清事件
             snapshot = ctx.draw.build(self.frame)
@@ -161,6 +177,9 @@ class Th07World(World):
         )
         if self.boss is not None:
             self.boss.mark_death()  # 结界破裂 → 捕获失败 (Player.cpp:2175-2176)
+        # 结界破发声 (Player.cpp:2191-2192; 音效号 7=se_tan00 33=se_bonus)
+        self.frame_sounds.append(7)
+        self.frame_sounds.append(33)
 
     # ---- ECL 宿主接线(回调在帧内触发, ctx 必在) ----
     def _on_set_boss(self, idx: int, m: EclMachine | None) -> None:
@@ -233,7 +252,8 @@ class Th07SyncSystem(System[Th07World]):
         host.shottype = world.character
         spell = world.spellcard_active()
         host.spellcard_active = spell
-        # 敌人场(冻结 = 自机非 ALIVE; 无 bomb 的等价式, 出处 old world.py:381)
+        # 敌人场(冻结 = 自机非 ALIVE; bomb 期间自机被强制 INVULNERABLE 等价,
+        # 触发当帧由 Th07BombSystem 补同步, 出处 old world.py:381)
         enemies = world.enemies
         enemies.frozen = player.state != PlayerState.ALIVE
         enemies.spellcard_active = spell
@@ -241,6 +261,8 @@ class Th07SyncSystem(System[Th07World]):
             bool(world.boss.used_bomb) if world.boss else False
         )
         enemies.player_pos = player.pos
+        # 追踪炸弹目标: 索敌重置前留住上帧结果 (旧 world.py:908-910 回写)
+        world.last_enemy_hit = enemies.targeting.position_of_last_enemy_hit
         enemies.targeting.reset()  # 索敌状态每帧重置 (Player::UpdateUI)
         enemies.damage_timers.clear()
         # 敌弹/激光判定门控(出处 old world.py:914-927 的玩家状态门控)
@@ -315,6 +337,131 @@ class Th07BorderSystem(System[Th07World]):
             )
         elif border.active:
             g.cherry_plus = plus  # 结界中 cherryPlus 随剩余时间衰减的显示值
+
+
+class Th07BombSystem(System[Th07World]):
+    """LOGIC 槽: bomb 键(结界破分支) → try_start → 每帧推进/樱点 drain/事件消费。
+
+    帧内位置对齐旧 world.py:803-842(ECL 步进前)。触发入账同步做: 决死窗状态
+    翻转/respawn+6/首帧无敌须先于 PlayerSystem(帧末 flush 的 BombStarted 订阅
+    太晚), 订阅侧只挂音效(settle.py)。
+    """
+
+    def tick(self, world: Th07World, ctx: FrameContext) -> None:
+        player = world.player
+        bomb = world.bomb
+        bctx = world.bomb_ctx
+        # bctx 同步 (旧 _bomb_ctx, old world.py:1317-1329)
+        bctx.player_pos = player.pos
+        bctx.difficulty = world.difficulty
+        bctx.cherry = world.th07.cherry
+        bctx.cherry_start = world.th07.cherry_start
+        bctx.last_enemy_hit = world.last_enemy_hit
+        # bomb/结界键 (Player.cpp:1686-1692 + UpdateBorderAndBombState 触发分支)
+        if Button.BOMB in ctx.input.pressed and not bomb.is_in_use:
+            if player.border.has_border != BorderState.NONE:
+                world._break_border()  # 有结界时按 bomb 键 = 主动破
+                world.items.remove_all_items()  # Player.cpp:1691
+            else:
+                self._try_start(world, ctx)
+        # 每帧推进 (UpdateBombProjectiles 无条件 → drain → 机体 calc)
+        was_in_use = bomb.is_in_use
+        bomb.tick(ctx, bctx)
+        if was_in_use and bomb.invulnerable:
+            # bomb 期间 playerState=INVULNERABLE, 结束后剩余无敌继续倒数
+            # (旧 world.py:824-831, BUGS.md 增量#2)
+            player.state = PlayerState.INVULNERABLE
+        if was_in_use:
+            if bomb.drain_applied:
+                world.th07.subtract_cherry_drain(bomb.drain_applied)
+            for ev in bomb.events:
+                if ev == EVENT_REMOVE_ALL_ITEMS:
+                    world.items.remove_all_items()
+                elif ev == EVENT_STOP_BULLET_MOVEMENT:
+                    world.bullets.stop_bullet_movement()  # 咲夜B 停时
+                # EVENT_END_PLAYER_SPELLCARD 是 GUI 横幅事件, 逻辑侧无影响
+            bomb.events.clear()
+            world.frame_shakes.extend(bomb.shakes)
+            bomb.shakes.clear()
+
+    def _try_start(self, world: Th07World, ctx: FrameContext) -> None:
+        """触发 + 同步入账 (旧 _try_bomb 成功分支, old world.py:1331-1384)。"""
+        player = world.player
+        bomb = world.bomb
+        g = world.th07
+        started = bomb.try_start(
+            ctx,
+            world.bomb_ctx,
+            # 本帧输入(PlayerSystem 尚未 push, 旧世界层在帧首已喂当帧 keys)
+            focus=Button.FOCUS in ctx.input.held,
+            bombs_remaining=g.bombs,
+            respawn_timer=player.respawn_timer,
+            border_invulnerability_time=player.border.border_invulnerability_time,
+            bomb_pressed=True,
+        )
+        if not started:
+            return
+        g.bombs_used += 1
+        g.bombs -= 1
+        g.decrease_subrank(BOMB_SUBRANK_PENALTY)
+        player.respawn_timer = min(
+            player.respawn_timer + BOMB_RESPAWN_PENALTY, player.initial_respawn_timer
+        )
+        if world.boss is not None:
+            world.boss.mark_bombed()  # 用弹 → 本张符卡不算捕获
+        # 触发当帧补同步 enemy 门控(旧在 host step 调用点取值; SyncSystem 跑在触发前)
+        world.enemies.frozen = True
+        world.enemies.spellcard_used_bomb = (
+            bool(world.boss.used_bomb) if world.boss else False
+        )
+        # 炸弹首帧无敌由机体 calc 设定 (BombData *Calc timer==0 分支)
+        player.invulnerability_timer = max(
+            player.invulnerability_timer, bomb.invulnerability_timer
+        )
+        if player.state == PlayerState.DEAD:
+            # 决死B: 死亡窗口内 bomb 代替丢残机, 本帧起死亡倒计时即停
+            # (Player.cpp:1764-1779 UpdateDeath 只在 DEAD 时跑)
+            player.state = PlayerState.INVULNERABLE
+
+
+class Th07PlayerSystem(PlayerSystem):
+    """LOGIC 槽: 自机步进; bomb 中输入向量乘 move_speed_multiplier (旧 world.py:854-863)。"""
+
+    def __init__(
+        self, field: Th07PlayerField, shots: ShotField, bomb: Th07BombField
+    ) -> None:
+        super().__init__(field, shots)
+        self.bomb = bomb
+
+    def tick(self, world: World, ctx: FrameContext) -> None:
+        f = self.field  # world 用不上: bomb/field/shots 均构造注入
+        if self.read_input:
+            f.push_frame(ctx.input)
+        mult = self.bomb.move_speed_multiplier if self.bomb.is_in_use else 1.0
+        orig = f._move
+        if mult != 1.0:
+            # C++ 是炸弹中对最终移速乘倍率; 线性缩放入输入向量与之等价
+            f._move = orig * mult
+        f.step(ctx)
+        f._move = orig
+        if self.shots is not None:
+            s = self.shots
+            s.player_pos = f.pos
+            s.focus = f.focus
+            s.firing = f.firing
+            s.player_state = int(f.state)
+
+
+class Th07ContactSystem(System[Th07World]):
+    """COLLISION 槽: 体术判定; bomb 中整段跳过(CheckBombGraze 短路, Player.cpp:1009-1012)。"""
+
+    def __init__(self, field: Th07EnemyField, player: Th07PlayerField) -> None:
+        self.field = field
+        self.player = player
+
+    def tick(self, world: Th07World, ctx: FrameContext) -> None:
+        if not world.bomb.is_in_use:
+            self.field.contact_pass(self.player, ctx)
 
 
 class Th07BossSystem(System[Th07World]):
@@ -435,6 +582,8 @@ def compose_world(
         difficulty=difficulty,
     )
     enemies = Th07EnemyField(stage=stage_no, is_reimu_a=(character == 0))
+    bomb = Th07BombField(character=character)
+    bomb_ctx = Th07BombContext(player_pos=player.pos)
 
     # ---- ECL 宿主/时间轴 ----
     host = Th07EclHost(
@@ -460,6 +609,8 @@ def compose_world(
         lasers=lasers,
         items=items,
         enemies=enemies,
+        bomb=bomb,
+        bomb_ctx=bomb_ctx,
         th07=g,
         options=OptionMachine(rotating=(character == 5)),  # 咲夜B 旋转子机
         host=host,
@@ -477,21 +628,24 @@ def compose_world(
     host.on_end_spellcard = world._on_end_spellcard
     player.on_border_break = world._break_border
 
-    # ---- 管线(engine 件槽位对齐旧 world.py tick 帧序; 无 bomb/msg) ----
+    # ---- 管线(engine 件槽位对齐旧 world.py tick 帧序; msg 留待) ----
     p: Pipeline = Pipeline()
     p.add(Slot.LOGIC, Th07SyncSystem())
+    p.add(Slot.LOGIC, Th07BombSystem())
+    p.add(Slot.LOGIC, BombClearSystem(bomb, bullets))
+    p.add(Slot.LOGIC, BombDamageSystem(enemies, bomb))
     p.add(Slot.LOGIC, Th07TimelineSystem())
     p.add(Slot.LOGIC, Th07EnemyEclSystem(enemies, host))
     p.add(Slot.LOGIC, Th07BorderSystem())
-    p.add(Slot.LOGIC, PlayerSystem(player, shots))
+    p.add(Slot.LOGIC, Th07PlayerSystem(player, shots, bomb))
     p.add(Slot.LOGIC, Th07BossSystem())
     p.add(Slot.LOGIC, GlobalsSystem(world.globals))
     p.add(Slot.MOVEMENT, ShotMovementSystem(shots))
     p.add(Slot.MOVEMENT, BulletMovementSystem(bullets))
     p.add(Slot.MOVEMENT, ItemMovementSystem(items))
     p.add(Slot.MOVEMENT, LaserMovementSystem(lasers))
-    p.add(Slot.COLLISION, EnemyContactSystem(enemies, player))
-    p.add(Slot.COLLISION, EnemyShotSystem(enemies, shots))
+    p.add(Slot.COLLISION, Th07ContactSystem(enemies, player))
+    p.add(Slot.COLLISION, EnemyShotSystem(enemies, shots, bomb))
     p.add(Slot.COLLISION, BulletCollisionSystem(bullets))
     p.add(Slot.COLLISION, Th07BorderClearSystem())
     p.add(Slot.COLLISION, ItemCollectSystem(items))

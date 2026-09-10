@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from ...engine.bomb import BombClearedBullet, BombStarted
 from ...engine.boss import SpellcardEnded, SpellcardFailed
 from ...engine.bullets import BulletGraze, BulletHit
 from ...engine.enemies import EnemyDamaged, EnemyDied, EnemyTimerCallback
@@ -24,6 +25,7 @@ from ...engine.player import (
     PlayerRespawned,
 )
 from ...utils.math import Vec2
+from .bomb import BOMB_SOUNDS, SE_BOMB
 from .data import DROP_TABLE, FULL_POWER, FULL_POWER_SCORE_BONUS
 from .items import ItemKind, next_needed_point_items_for_extend
 from .player import settle_death
@@ -59,7 +61,9 @@ def _on_enemy_damaged(w: Th07World, ev: EnemyDamaged) -> None:
     """伤害入账: 得分 = min(raw,70)/5 (代码值), 樱点按 raw 伤害查公式。"""
     # 出处 old/touhou/engine/enemies.py:71-95 (EnemyManager.cpp:782-890)
     w.add_score(min(ev.raw_damage, 70) // 5 * 10)
-    # 樱点: (boss 或未 focus) 且非 bomb 中才产(本切片无 bomb, 门控恒真)
+    # 樱点: (boss 或未 focus) 且非 bomb 中才产 (settle_damage 的 bomb_in_use 门控)
+    if ev.by_bomb or w.bomb.is_in_use:
+        return
     if not (ev.is_boss or not w.player.focus):
         return
     sf = _stage_factor(w.stage_no)
@@ -177,6 +181,22 @@ def _on_graze(w: Th07World, ev: Event) -> None:
     boss = w.boss
     if boss is not None and boss.is_capturing:
         boss.add_graze_bonus(2500 + (g.cherry - g.cherry_start) // 1500 * 20)
+
+
+# ---- 炸弹 ----
+
+
+def _on_bomb_started(w: Th07World, ev: BombStarted) -> None:
+    """炸弹发声: 机体音 + 横幅音(计数/决死窗/used_bomb 在触发点已同步入账)。"""
+    # 出处 old/touhou/games/th07/world.py:1363-1368
+    w.frame_sounds.append(BOMB_SOUNDS.get((w.character, ev.focus), 13))
+    w.frame_sounds.append(SE_BOMB)
+
+
+def _on_bomb_cleared_bullet(w: Th07World, ev: BombClearedBullet) -> None:
+    """清弹盒消弹 → 弹消点道具, 出生即吸附 (BulletManager.cpp:995/1010)。"""
+    # 出处 old/touhou/games/th07/world.py:1414-1422
+    w.items.spawn(Vec2(ev.x, ev.y), ev.item_type, state=STATE_ATTRACT)
 
 
 # ---- 道具收集 ----
@@ -388,6 +408,8 @@ _HANDLERS: dict[type[Event], Callable[[Th07World, Any], None]] = {
     PlayerDeathSettled: _on_player_death_settled,
     PlayerRespawned: _on_player_respawned,
     PlayerGraceClear: _on_grace_clear,
+    BombStarted: _on_bomb_started,
+    BombClearedBullet: _on_bomb_cleared_bullet,
 }
 
 
