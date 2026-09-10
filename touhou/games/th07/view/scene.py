@@ -76,6 +76,7 @@ def run_scenes(
             scene.step(inp)
             backend.play_sounds(scene.drain_sounds())
             _sync_shakes(scene, backend)
+            _sync_bg(scene, backend)
             if music is not None:
                 music.poll()
             if scene.done:
@@ -101,3 +102,10 @@ def _sync_shakes(scene: Scene, backend: RenderBackend) -> None:
     register = getattr(backend, "register_shakes", None)
     if shakes and register is not None:
         register(shakes)
+
+
+def _sync_bg(scene: Scene, backend: RenderBackend) -> None:
+    """把 scene 的 3D 背景帧喂给后端(两侧都 duck-typed, 缺任一侧即跳过)。"""
+    set_bg = getattr(backend, "set_background", None)
+    if set_bg is not None:
+        set_bg(getattr(scene, "frame_bg", None))

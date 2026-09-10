@@ -19,6 +19,7 @@ from ..replay import (
 )
 from ..world import Th07World, compose_world
 from .backend import PygameBackend
+from .bg3d import StageBg
 from .fx import GameFx
 from .game_scene import GameScene
 from .menu_vms import MenuVmSet
@@ -197,6 +198,7 @@ def run_app(
             mode=mode,
             fx=GameFx(world, anm_version=assembly.scripts.anm_version),
             music=music,
+            bg=StageBg(world.archive, anm_version=assembly.scripts.anm_version),
             on_exit=lambda: make_replay_list(
                 None, on_exit=lambda: make_title(cursor=_MENU_REPLAY)
             ),
@@ -240,6 +242,7 @@ def run_app(
             recorder=recorder,
             fx=fx,
             music=music,
+            bg=StageBg(world.archive, anm_version=assembly.scripts.anm_version),
         )
 
     try:
@@ -287,6 +290,7 @@ def run_game(
         on_exit=lambda: None,
         fx=GameFx(world, anm_version=assembly.scripts.anm_version),
         music=music,
+        bg=StageBg(world.archive, anm_version=assembly.scripts.anm_version),
     )
     run_scenes(scene, backend, title=assembly.title, scale=scale, music=music)
     return world

@@ -157,6 +157,9 @@ class Th07World(World):
         default_factory=list
     )
     frame_bonus_score: int = 0  # 清场 BONUS 横幅分(代码值, 0=本帧无), view 消费
+    # ECL SET_SCRIPT_WAIT_TIME 透出 (EclManager.cpp:1821-1823 写 g_Stage);
+    # view 的 3D 背景场景消费(std 脚本跳 WaitLabel)
+    stage_script_waits: list[int] = msgspec.field(default_factory=list)
 
     # ---- 驱动 ----
     def tick(self, input: InputFrame | None = None) -> SceneSnapshot:
@@ -176,6 +179,7 @@ class Th07World(World):
         self.frame_shakes.clear()
         self.frame_popups.clear()
         self.frame_bonus_score = 0
+        self.stage_script_waits.clear()
         if self.game_over:
             # 无残机死亡(C++ 进 retry 菜单): 可续关则画面冻结, 等 view 选择
             # (continue_play/finalize_game_over); 不可续关(Extra·Phantasm/
@@ -793,6 +797,7 @@ def compose_world(
     # ---- 宿主/自机 hook 接线 ----
     host.on_sound = world.frame_sounds.append
     host.on_bgm = world.frame_bgm.append
+    host.on_script_wait = world.stage_script_waits.append
     host.on_set_power = lambda v: setattr(world.th07, "power", float(v))
     host.on_add_cherry_plus = world.add_cherry_plus
     host.on_set_boss = world._on_set_boss

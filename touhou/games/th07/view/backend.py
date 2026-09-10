@@ -24,7 +24,7 @@ from .shake import ScreenShake
 
 _BG_COLOR = (8, 12, 30)  # 窗外区底色
 _PANEL_COLOR = (14, 18, 42)  # 右栏积分面板底色
-_FIELD_COLOR = (10, 14, 36)  # 游戏区底色(3D 背景留待后续单, 纯色占位)
+_FIELD_COLOR = (10, 14, 36)  # 游戏区底色(无 3D 背景数据时的占位)
 _BORDER_COLOR = (58, 66, 108)  # 游戏区边框(原作为边框贴图, 近似色环)
 Z_GUI = 100.0  # z>=此值 = Gui 层: 不裁剪不振屏(特效层横幅/标题/弹字)
 
@@ -80,6 +80,8 @@ class PygameBackend(RenderBackend):
         self._mixer_ok = False
         # 游戏区边框/右栏/裁剪(runner 按 scene.playfield_chrome 同步; 菜单画面关)
         self.playfield_chrome = True
+        # 3D 背景帧(runner 按 scene.frame_bg 同步; None = 纯色占位)
+        self._bg: pygame.Surface | None = None
         # SE 总开关(cfg.playSounds, 由装配处同步; SoundPlayer playSounds 语义)
         self.sounds_enabled = True
         self._shake = ScreenShake()
@@ -88,6 +90,10 @@ class PygameBackend(RenderBackend):
         """登记本帧震屏事件 (BombEffects type=1; runner 从 scene 同步)。"""
         for duration, amp_start, amp_end in shakes:
             self._shake.register(duration, amp_start, amp_end)
+
+    def set_background(self, surf: pygame.Surface | None) -> None:
+        """同步本帧 3D 背景帧(runner 从 scene.frame_bg 喂; None = 纯色占位)。"""
+        self._bg = surf
 
     # ---- 生命周期 ----
     def open(self, *, title: str, scale: int | None = None) -> None:
@@ -155,11 +161,15 @@ class PygameBackend(RenderBackend):
                 _PANEL_COLOR,
                 (GAME_X + GAME_W, 0, WIN_W - GAME_X - GAME_W, WIN_H),
             )
-            pygame.draw.rect(
-                frame, _FIELD_COLOR, (GAME_X, GAME_Y, GAME_W, GAME_H)
-            )  # 游戏区底色(背景占位)
+            if self._bg is None:
+                pygame.draw.rect(
+                    frame, _FIELD_COLOR, (GAME_X, GAME_Y, GAME_W, GAME_H)
+                )  # 游戏区底色(无背景数据占位)
             # 世界 sprite 裁进游戏区(原作场外包边不露实体)
             frame.set_clip(pygame.Rect(GAME_X, GAME_Y, GAME_W, GAME_H))
+            if self._bg is not None:
+                # 3D 背景(世界空间, 随震屏偏移; z 序最底)
+                frame.blit(self._bg, (GAME_X + sdx, GAME_Y + sdy))
         gui_layer = False  # z 有序: 一过 Z_GUI 即关裁剪/停震屏偏移(Gui 层)
         for spr in sorted(snapshot.sprites, key=lambda s: s.z):
             if chrome and not gui_layer and spr.z >= Z_GUI:

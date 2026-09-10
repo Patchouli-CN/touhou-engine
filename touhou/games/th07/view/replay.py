@@ -15,6 +15,7 @@ from ....engine.input import Button
 from .. import result as result_flow
 from ..replay import ReplayEntry, StageMark, Th07Replay, decode_input, load_inputs
 from ..world import Th07World
+from .bg3d import StageBg
 from .fx import GameFx
 from .menu_vms import SE_BACK, SE_MOVE, SE_SELECT, MenuScene, MenuVmSet
 from .music import TITLE_BGM, BgmPlayer, StageBgm
@@ -310,6 +311,7 @@ class ReplayWatchScene(Scene):
         mode: int = 0,
         fx: GameFx | None = None,
         music: BgmPlayer | None = None,
+        bg: StageBg | None = None,
         on_exit: Callable[[], Scene | None],
     ) -> None:
         super().__init__()
@@ -318,6 +320,8 @@ class ReplayWatchScene(Scene):
         self._mode = mode
         self._fx = fx
         self._music = music
+        self._bg = bg
+        self._bg_surf = None
         self._bgm = StageBgm(music, world.archive) if music is not None else None
         self._codes = load_inputs(replay)
         self._events: list[Event] = []
@@ -332,6 +336,8 @@ class ReplayWatchScene(Scene):
         self._fx_sprites: tuple = ()
         self._fx_texts: tuple = ()
         self._step_fx()
+        if self._bg is not None:
+            self._bg_surf = self._bg.step(world)
         mark.snapshot.apply(world)
         if self._bgm is not None:
             self._bgm.step(world)  # 该面主曲(GameManager.cpp:782, 快照回灌后取帧号)
@@ -367,6 +373,7 @@ class ReplayWatchScene(Scene):
         w = self.world
         if w.msg_active and w.msg_vm is not None and w.msg_vm.dialogue_skippable:
             steps = max(steps, 3)  # 对话自动快进(:87-91)
+        executed = 0
         for _ in range(steps):
             if self._idx >= len(self._codes):
                 self.done = True  # 输入喂完 = 回放结束(REPLAY_END)
@@ -379,16 +386,21 @@ class ReplayWatchScene(Scene):
             if self._bgm is not None:
                 self._bgm.step(w)
             self._frame_sounds = list(w.frame_sounds)
+            executed += 1
             if w.ending is not None:
                 result_flow.finish_ending(w)  # 回放不进结局画面(Gui.cpp:1077-1085)
             if w.result is not None:
                 self.done = True
                 break
+        if self._bg is not None and executed:
+            self._bg_surf = self._bg.step(w, frames=executed)  # 快进多推少渲
 
     def on_exit(self) -> None:
         """离开回放停 BGM(GameManager::DeletedCallback, GameManager.cpp:813)。"""
         if self._music is not None:
             self._music.stop()
+        if self._bg is not None:
+            self._bg.close()
 
     def snapshot(self) -> SceneSnapshot:
         base = self._snapshot
@@ -405,6 +417,11 @@ class ReplayWatchScene(Scene):
     def frame_shakes(self) -> list[tuple[int, int, int]]:
         """本帧震屏事件(runner 同步给后端; 暂停帧不重复消费)。"""
         return [] if self.paused else self.world.frame_shakes
+
+    @property
+    def frame_bg(self):  # -> pygame.Surface | None(duck 通道, 不引类型)
+        """本帧 3D 背景帧(runner 同步给后端; None = 纯色占位)。"""
+        return self._bg_surf
 
     def events(self) -> tuple[Event, ...]:
         out = tuple(self._events)

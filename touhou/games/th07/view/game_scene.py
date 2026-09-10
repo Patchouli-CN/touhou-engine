@@ -9,6 +9,7 @@ from ....engine.input import Button
 from .. import result as result_flow
 from ..replay import ReplayRecorder
 from ..world import Th07World
+from .bg3d import StageBg
 from .fx import GameFx
 from .music import BgmPlayer, StageBgm
 from .scene import Scene
@@ -36,6 +37,7 @@ class GameScene(Scene):
         recorder: ReplayRecorder | None = None,
         fx: GameFx | None = None,
         music: BgmPlayer | None = None,
+        bg: StageBg | None = None,
     ) -> None:
         super().__init__()
         self.world = world
@@ -44,6 +46,8 @@ class GameScene(Scene):
         self._recorder = recorder
         self._fx = fx
         self._music = music
+        self._bg = bg
+        self._bg_surf = None
         self._bgm = StageBgm(music, world.archive) if music is not None else None
         self._events: list[Event] = []
         world.subscribers.append(self._events.append)
@@ -51,6 +55,7 @@ class GameScene(Scene):
             world.subscribers.append(self._bgm.on_event)
         self._snapshot = world.tick(InputFrame())  # 首帧快照(同原 run_game)
         self._merge_fx()
+        self._step_bg()
         if self._bgm is not None:
             self._bgm.step(world)  # 关头主曲(GameManager.cpp:782)
         if recorder is not None:
@@ -70,6 +75,16 @@ class GameScene(Scene):
             base.texts + tuple(texts),
             base.effects,
         )
+
+    def _step_bg(self) -> None:
+        """3D 背景推进一帧(暂停不走; runner 经 frame_bg 同步给后端)。"""
+        if self._bg is not None:
+            self._bg_surf = self._bg.step(self.world)
+
+    @property
+    def frame_bg(self):  # -> pygame.Surface | None(duck 通道, 不引类型)
+        """本帧 3D 背景帧(runner 同步给后端; None = 纯色占位)。"""
+        return self._bg_surf
 
     @property
     def frame_shakes(self) -> list[tuple[int, int, int]]:
@@ -91,6 +106,7 @@ class GameScene(Scene):
             return
         self._snapshot = self.world.tick(inp)
         self._merge_fx()
+        self._step_bg()
         if self._bgm is not None:
             self._bgm.step(self.world)
         if self._recorder is not None:
@@ -111,6 +127,8 @@ class GameScene(Scene):
         """离开对局停 BGM(GameManager::DeletedCallback, GameManager.cpp:813)。"""
         if self._music is not None:
             self._music.stop()
+        if self._bg is not None:
+            self._bg.close()
 
     def snapshot(self) -> SceneSnapshot:
         return self._snapshot

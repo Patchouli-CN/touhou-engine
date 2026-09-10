@@ -87,6 +87,7 @@ from .ecl_instrs import (
     SetLifeCallbackSub,
     SetLifeCallbackThreshold,
     SetMoveAnm,
+    SetScriptWaitTime,
     SetShootOffset,
     SetTimerCallbackSub,
     SetTimerCallbackThreshold,
@@ -190,6 +191,7 @@ class Th07EclHost(EclHost):
         # ---- 世界接线(world 赋值; None = 未接) ----
         self.on_sound: Callable[[int], None] | None = None
         self.on_bgm: Callable[[tuple], None] | None = None
+        self.on_script_wait: Callable[[int], None] | None = None
         self.on_set_power: Callable[[int], None] | None = None
         self.on_add_cherry_plus: Callable[[int], None] | None = None
         self.on_set_boss: Callable[[int, EclMachine | None], None] | None = None
@@ -891,7 +893,10 @@ class Th07EclHost(EclHost):
         elif isinstance(instr, AddCherryPlus):
             if self.on_add_cherry_plus is not None:
                 self.on_add_cherry_plus(m.ival(instr.value))
-        # SetScriptWaitTime 等全局表现类不接
+        elif isinstance(instr, SetScriptWaitTime):
+            # g_Stage.scriptWaitTime = value (EclManager.cpp:1821-1823)
+            if self.on_script_wait is not None:
+                self.on_script_wait(m.ival(instr.frames))
 
     def get_boss_int(self, m: EclMachine, instr: EclInstr) -> int | None:
         assert isinstance(instr, GetBossInt)
