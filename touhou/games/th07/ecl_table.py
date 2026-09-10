@@ -1,29 +1,34 @@
-"""ECL opcode 表: v0(无版本头格式)。
+"""th07 ECL 指令集: v0 opcode 表 + 符卡定制编解码 + InstrSet 装配。
 
 编号/布局出处 Reference/th07/src/th07/EclManager.hpp:115-271 + EclManager.cpp。
+parse_ecl 薄包装把版本布局(0)/指令集/时间轴解码器一并注入(架构稿 §2.6:
+格式变体走变体专用的薄函数)。
 """
 
 from __future__ import annotations
 
-from .boss import (
-    AddCherryPlus,
-    BeginSpellcard,
+from typing import Any
+
+from ...schemas.ecl import (
+    EclFile,
+    EclInstr,
+    InstrSet,
+    build_instr_set,
+)
+from ...schemas.ecl import parse_ecl as _parse_ecl
+from ...schemas.ecl.boss import (
     EndSpellcard,
     FreezeEclDuringBomb,
     RunExIns,
     SetBoss,
     SetBossHealth,
-    SetBossRunInterrupt,
     SetExIns,
     SetNumBossLifeMarkers,
-    SetScriptWaitTime,
 )
-from .bullets import (
+from ...schemas.ecl.bullets import (
     AddLaserAngle,
     AimLaserAtPlayer,
     ClearLasers,
-    DisableBullets,
-    EnableBullets,
     InitBulletCmd,
     RemoveAllBullets,
     RemoveBulletsRadius,
@@ -37,61 +42,44 @@ from .bullets import (
     SetLaserStartLen,
     SetShootInterval,
     SetShootIntervalRand,
-    SetShootOffset,
     SpawnPrevBulletPattern,
     StopLaser,
-    TestLaserNotInUse,
 )
-from .control import (
+from ...schemas.ecl.control import (
     AddTime,
     DecJump,
     Jump,
     Nop,
     SetInterrupt,
     SetNoStackRet,
-    SetRunInterrupt,
     SetWaitTimer,
     Stop,
     SubCall,
     SubRet,
 )
-from .enemy import (
+from ...schemas.ecl.decode import (
+    _decode_text,
+    _encode_text,
+    _i16,
+    _u16,
+)
+from ...schemas.ecl.enemy import (
     BindTimerCallbackToDeath,
-    Idfk,
     PlaySound,
     RemoveAllEnemies,
     SetAnm,
-    SetCanBeDamaged,
     SetDeathAnm,
-    SetDeathCallbackSub,
     SetDeathType,
-    SetDespawnOnOob,
-    SetEnemyCanDie,
-    SetGlobalEffectColorMul,
-    SetGrazeSize,
-    SetHasContactHitbox,
-    SetHasNoCollision,
-    SetHitboxSize,
     SetInvincibilityTimer,
-    SetIsHittable,
-    SetIsProjectile,
     SetIsSurvivalSpellcard,
     SetLife,
     SetLifeCallback,
-    SetLifeCallbackSub,
-    SetLifeCallbackThreshold,
-    SetMoveAnm,
-    SetPeriodicCallback,
     SetPrimaryVmInterrupt,
     SetPrimaryVmRotZ,
-    SetSpecialEffectPos,
     SetSubAnm,
     SetTimer,
-    SetTimerCallbackSub,
-    SetTimerCallbackThreshold,
     SetTrail,
     SetVmAutoRotate,
-    SetVmInterrupt,
     SpawnEffect,
     SpawnEnemyAbs,
     SpawnEnemyRel,
@@ -101,23 +89,17 @@ from .enemy import (
     SpawnParticles,
     SpawnPointItems,
 )
-from .mathops import (
+from ...schemas.ecl.mathops import (
     Atan2,
     Cos,
     Dec,
     GetBossFloat,
     GetBossInt,
-    GetExitAngle,
     Inc,
     InitInterp,
     Lerp,
     NormalizeAngle,
-    Rand,
-    RandAdd,
     RandExitAngle,
-    RandFloat,
-    RandFloatAdd,
-    RandFloatRange,
     RandSign,
     RandSignFloat,
     SetFloat,
@@ -125,25 +107,15 @@ from .mathops import (
     Sin,
     VecFromAngleMagRaw,
 )
-from .movement import (
+from ...schemas.ecl.movement import (
     DisableMovementBounds,
     MoveAtPlayer,
     MoveDirTime,
-    MoveOrbit,
-    MovePosTime,
     SetAngularVel,
-    SetAxisSpeed,
     SetMoveAccel,
-    SetMoveInterpTimerInterp,
-    SetMoveInterpTimerPolar,
-    SetMoveInterpTimerRadial,
     SetMovementBounds,
-    SetMoveSpeed,
-    SetOrbitAngle,
-    SetOrbitRadius,
-    SetPos,
 )
-from .spec import (
+from ...schemas.ecl.spec import (
     _A,
     _CONDS,
     _FLOAT_ARITH,
@@ -151,9 +123,83 @@ from .spec import (
     _bullet,
     _cond,
     _Entry,
-    _laser_v0,
     _spawn_enemy,
 )
+from ...schemas.exceptions import ParseError
+from .ecl_instrs import (
+    AddCherryPlus,
+    BeginSpellcard,
+    DisableBullets,
+    EnableBullets,
+    GetExitAngle,
+    Idfk,
+    MoveOrbit,
+    MovePosTime,
+    Rand,
+    RandAdd,
+    RandFloat,
+    RandFloatAdd,
+    RandFloatRange,
+    SetAxisSpeed,
+    SetBossRunInterrupt,
+    SetCanBeDamaged,
+    SetDeathCallbackSub,
+    SetDespawnOnOob,
+    SetEnemyCanDie,
+    SetGlobalEffectColorMul,
+    SetGrazeSize,
+    SetHasContactHitbox,
+    SetHasNoCollision,
+    SetHitboxSize,
+    SetIsHittable,
+    SetIsProjectile,
+    SetLifeCallbackSub,
+    SetLifeCallbackThreshold,
+    SetMoveAnm,
+    SetMoveInterpTimerInterp,
+    SetMoveInterpTimerPolar,
+    SetMoveInterpTimerRadial,
+    SetMoveSpeed,
+    SetOrbitAngle,
+    SetOrbitRadius,
+    SetPeriodicCallback,
+    SetPos,
+    SetRunInterrupt,
+    SetScriptWaitTime,
+    SetShootOffset,
+    SetSpecialEffectPos,
+    SetTimerCallbackSub,
+    SetTimerCallbackThreshold,
+    SetVmInterrupt,
+    SpawnLaserPattern,
+    TestLaserNotInUse,
+)
+from .ecl_timeline import decode_timeline
+
+
+def _laser_v0(moving: bool) -> _Entry:
+    """激光表项(width/计时/flags 全 raw)。"""
+    return _Entry(
+        SpawnLaserPattern,
+        (
+            _A("sprite", 0, "h0"),
+            _A("sprite_offset", 0, "h1m", 1),
+            _A("angle", 1, "float", 2),
+            _A("speed", 2, "float", 3),
+            _A("start_offset", 3, "float", 4),
+            _A("end_offset", 4, "float", 5),
+            _A("start_length", 5, "float", 6),
+            _A("width", 6, "rf"),
+            _A("start_time", 7, "ri"),
+            _A("duration", 8, "ri"),
+            _A("end_time", 9, "ri"),
+            _A("hitbox_start_time", 10, "ri"),
+            _A("hitbox_end_time", 11, "ri"),
+            _A("flags", 12, "ri"),
+        ),
+        {"moving": moving},
+    )
+
 
 _V0: dict[int, _Entry] = {
     0: _Entry(Nop, (_A("rest", 0, "rest"),)),
@@ -501,3 +547,39 @@ for _i, (_cls, _f) in enumerate(_CONDS):  # 28-39: 条件跳(int/float 交错)
     _V0[28 + _i] = _cond(_cls, _f)
 for _op in range(64, 73):  # 弹幕生成 9 合一(aim_mode = opcode - 64)
     _V0[_op] = _bullet(_op - 64)
+
+
+# ---- 符卡定制编解码(内嵌 XOR 0xAA 字符串, 字段规格表达不了) ----
+
+
+def _decode_spellcard(
+    base: dict[str, Any], words: tuple[int, ...], mask: int
+) -> EclInstr:
+    # 布局: word0 = gui_id i16|spellcard_idx u16, word1-12 = 符卡名 48B
+    # (EclManager.cpp BeginSpellcard: 名字取 instr->args[1] 起 0x30 字节)
+    if len(words) != 13:
+        raise ParseError(f"begin_spellcard 参数数不符: {len(words)} != 13")
+    return BeginSpellcard(
+        **base,
+        gui_id=_i16(words[0], 0),
+        spellcard_idx=_u16(words[0], 1),
+        name=_decode_text(words[1:13]),
+    )
+
+
+def _encode_spellcard(instr: Any) -> list[int]:
+    words = [(instr.gui_id & 0xFFFF) | ((instr.spellcard_idx & 0xFFFF) << 16)]
+    return words + _encode_text(instr.name, 48)
+
+
+#: th07 的 ECL 指令集(v0 表 + 符卡定制钩子 + encode 反查表)
+ECL_INSTR_SET: InstrSet = build_instr_set(
+    _V0,
+    custom_decode={BeginSpellcard: _decode_spellcard},
+    custom_encode={BeginSpellcard: _encode_spellcard},
+)
+
+
+def parse_ecl(data: bytes) -> EclFile:
+    """解析 th07 的 .ecl(v0 布局 + v0 指令集 + v0 时间轴)。"""
+    return _parse_ecl(data, version=0, instrs=ECL_INSTR_SET, decode_tl=decode_timeline)

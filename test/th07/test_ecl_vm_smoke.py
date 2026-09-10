@@ -5,8 +5,11 @@ from __future__ import annotations
 from touhou.engine.ecl import EclHost, EclMachine, TimelineRunner
 from touhou.engine.ecl.state import EnemySpawn
 from touhou.engine.rng import Rng
+from touhou.games.th07.ecl_handlers import ECL_EXTRA_HANDLERS
+from touhou.games.th07.ecl_table import parse_ecl
+from touhou.games.th07.ecl_timeline import TL_HANDLERS
 from touhou.schemas.archive import load_entry, open_archive
-from touhou.schemas.ecl import EclFile, EclInstr, parse_ecl
+from touhou.schemas.ecl import EclFile, EclInstr
 
 from .conftest import DATA, needs_data
 
@@ -48,7 +51,12 @@ class StubHost(EclHost):
             )
         )
         mach = EclMachine(
-            self.file, self, self.rng, int_var_ids=INT_VARS, float_var_ids=FLOAT_VARS
+            self.file,
+            self,
+            self.rng,
+            int_var_ids=INT_VARS,
+            float_var_ids=FLOAT_VARS,
+            extra_handlers=ECL_EXTRA_HANDLERS,
         )
         mach.start(spawn.sub_id)
         mach.enemy.life = spawn.life if spawn.life > 0 else 1000
@@ -67,7 +75,7 @@ def run_stage(frames: int) -> StubHost:
     arc = open_archive(DATA, format_name="pbg4")
     f = parse_ecl(load_entry(arc, "ecldata1.ecl"))
     host = StubHost(f, Rng(0))
-    tl = TimelineRunner(f.timelines[0], host, host.rng)
+    tl = TimelineRunner(f.timelines[0], host, host.rng, TL_HANDLERS)
     for _ in range(frames):
         tl.step()
         for mach in host.machines:

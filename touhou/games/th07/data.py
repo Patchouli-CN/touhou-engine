@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from ...engine.bullets import BulletTypeSpec
+from ...utils.math import Vec2
+
 # ---- 名单(下标语义: shotType / difficulty) ----
 # 出处 old/touhou/games/th07/data.py
 CHARACTERS = ("ReimuA", "ReimuB", "MarisaA", "MarisaB", "SakuyaA", "SakuyaB")
@@ -261,3 +264,85 @@ FULL_POWER_SCORE_BONUS = (
     11000,
     12000,
 )
+
+# ---- 敌弹弹型模板 ----
+# 16 槽(g_BulletTypeInfos + AddedCallback), 出处 old/touhou/games/th07/data.py:306
+# anm_file_idx = etama 活动脚本基址; spawn_t = 出生特效脚本时长(三档, 0x212-0x218/0x2aa)
+BULLET_TYPE_SPECS: tuple[BulletTypeSpec, ...] = (
+    BulletTypeSpec(0x200, 8.0, 8.0, Vec2(4, 4), 5, spawn_t=(10, 16, 32)),  # 0: 小弹
+    BulletTypeSpec(0x201, 16.0, 16.0, Vec2(6, 6), 3, spawn_t=(10, 16, 32)),  # 1: 中弹
+    BulletTypeSpec(0x202, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 16, 32)),  # 2: 米弹
+    BulletTypeSpec(0x203, 16.0, 16.0, Vec2(6, 6), 3, spawn_t=(10, 16, 32)),  # 3
+    BulletTypeSpec(0x204, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 16, 32)),  # 4
+    BulletTypeSpec(0x205, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 16, 32)),  # 5
+    BulletTypeSpec(0x206, 14.0, 16.0, Vec2(4, 4), 4, spawn_t=(10, 16, 32)),  # 6
+    BulletTypeSpec(0x207, 32.0, 32.0, Vec2(10, 10), 2, spawn_t=(32, 32, 32)),  # 7: 大弹
+    BulletTypeSpec(0x208, 32.0, 32.0, Vec2(5, 5), 1, spawn_t=(32, 32, 32)),  # 8: 刀弹
+    BulletTypeSpec(0x209, 32.0, 32.0, Vec2(8, 8), 2, spawn_t=(32, 32, 32)),  # 9: 札弹
+    BulletTypeSpec(0x2A8, 8.0, 8.0, Vec2(4, 4), 5, spawn_t=(24, 24, 24)),  # 10: 光弹
+    # 11..15: TH07 未初始化(AddedCallback 只循环 i<11)
+    BulletTypeSpec(0, 0.0, 0.0, Vec2(0, 0), 0),
+    BulletTypeSpec(0, 0.0, 0.0, Vec2(0, 0), 0),
+    BulletTypeSpec(0, 0.0, 0.0, Vec2(0, 0), 0),
+    BulletTypeSpec(0, 0.0, 0.0, Vec2(0, 0), 0),
+    BulletTypeSpec(0, 0.0, 0.0, Vec2(0, 0), 0),
+)
+
+_DEFAULT_BULLET_SIZE = Vec2(16, 16)
+
+
+def bullet_type_size(bullet_type: int) -> Vec2:
+    """弹型 → 精灵尺寸(出界/反弹判定用); 未知弹型给 16px 默认。"""
+    if 0 <= bullet_type < len(BULLET_TYPE_SPECS):
+        spec = BULLET_TYPE_SPECS[bullet_type]
+        if spec.width > 0:
+            return Vec2(spec.width, spec.height)
+    return _DEFAULT_BULLET_SIZE
+
+
+# 弹型模板的活动 sprite 基址(etama.anm 全局索引, 链式加载首个 set-sprite)
+_BULLET_BASE_SPRITE_IDX: tuple[int, ...] = (
+    512,
+    528,
+    544,
+    560,
+    576,
+    592,
+    608,
+    624,
+    632,
+    640,
+    680,
+)
+
+
+def bullet_active_sprite_idx(sprite: int, sprite_offset: int) -> int:
+    """活动 sprite 索引(SpawnSingleBullet: 基址 + spriteOffset)。"""
+    if 0 <= sprite < len(_BULLET_BASE_SPRITE_IDX):
+        return _BULLET_BASE_SPRITE_IDX[sprite] + sprite_offset
+    return -1
+
+
+def bullet_sprite_height(sprite: int, sprite_offset: int) -> float:
+    """活动 sprite 高(ExIns 大弹判定用); 模板 10 的 offset 0..3 是 64px 大玉。"""
+    if sprite == 10:
+        return 64.0 if 0 <= sprite_offset <= 3 else 16.0
+    return bullet_type_size(sprite).y
+
+
+# ---- ECL 变量槽 id(变量表出处 EclManager.hpp:362-397, 10000~10073) ----
+#: int 局部槽: LOCAL_INT1(10000-03) + LOCAL_INT2(10012-15) + LOCAL_INT3/global_ints(10029-32)
+ECL_INT_VAR_IDS = frozenset(
+    set(range(10000, 10004)) | set(range(10012, 10016)) | set(range(10029, 10033))
+)
+#: float 局部槽: LOCAL_FLOAT1(10004-11) + LOCAL_FLOAT3/global_floats(10033-36) + LOCAL_FLOAT2(10072-73)
+ECL_FLOAT_VAR_IDS = frozenset(
+    set(range(10004, 10012)) | set(range(10033, 10037)) | {10072, 10073}
+)
+#: 位置分量变量 id(插值命中时回算 axis_speed, EclManager.cpp:860-880)
+ECL_POS_VAR_IDS = frozenset({10018, 10019, 10020})
+
+# LOCAL_INT3/global_ints 与 LOCAL_FLOAT3/global_floats 的起始 id
+# (SUB_CALL/生敌时从宿主全局快照拷入上下文, 旧 a.global_ints/global_floats)
+GLOBAL_INT_VAR_BASE = 10029
+GLOBAL_FLOAT_VAR_BASE = 10033

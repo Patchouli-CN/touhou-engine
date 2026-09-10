@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import msgspec
 
+from touhou.games.th08.ecl_table import ECL_INSTR_SET, parse_ecl
 from touhou.schemas.archive import load_entry, open_archive, try_decrypt_signed
 from touhou.schemas.ecl import (
     EclInstr,
@@ -14,7 +15,6 @@ from touhou.schemas.ecl import (
     TlInstr,
     decode_instr,
     encode_instr,
-    parse_ecl,
 )
 
 from .conftest import DATA, needs_data
@@ -25,10 +25,7 @@ pytestmark = needs_data
 def _load_ecls() -> list[tuple[str, object]]:
     arc = open_archive(DATA)
     names = sorted(e.name for e in arc.entries if e.name.endswith(".ecl"))
-    return [
-        (n, parse_ecl(try_decrypt_signed(load_entry(arc, n)), version=0x800))
-        for n in names
-    ]
+    return [(n, parse_ecl(try_decrypt_signed(load_entry(arc, n)))) for n in names]
 
 
 def test_ecl_parse_all_v800() -> None:
@@ -52,5 +49,7 @@ def test_ecl_encode_self_consistent() -> None:
     for name, f in _load_ecls():
         for sub in f.subs:
             for ins in sub.instrs:
-                again = decode_instr(encode_instr(ins, version=0x800), 0, version=0x800)
+                again = decode_instr(
+                    encode_instr(ins, instrs=ECL_INSTR_SET), 0, instrs=ECL_INSTR_SET
+                )
                 assert again == msgspec.structs.replace(ins, offset=0), (name, ins)

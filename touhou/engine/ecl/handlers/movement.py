@@ -2,7 +2,9 @@
 
 语义移植 old/touhou/games/th07/ecl_vm.py 与 old/touhou/games/th08/ecl_vm.py
 同名 handler; 两作同布局不同语义的指令按 m.file.version 分版本(格式版本是
-数据属性, 非作品名分支)。
+数据属性, 非作品名分支)。MOVEMENT 只注册两作共享的指令类; 作品专属指令的
+handler 是公开函数/工厂(set_pos/move_interp_timer 等), 由 games 侧绑定
+自己的指令类后注入 VM。
 """
 
 from __future__ import annotations
@@ -14,30 +16,10 @@ from ....schemas.ecl import (
     DisableMovementBounds,
     EclInstr,
     MoveAtPlayer,
-    MoveAtPlayerTime,
-    MoveBoundaryAware,
     MoveDirTime,
-    MoveOrbit,
-    MoveOrbitAroundSelf,
-    MoveOrbitV800,
-    MovePosTime,
-    MovePosTimeV800,
-    MoveRandomBiased,
     SetAngularVel,
-    SetAxisSpeed,
-    SetMinPlayerDistance,
     SetMoveAccel,
-    SetMoveInterpTimerInterp,
-    SetMoveInterpTimerPolar,
-    SetMoveInterpTimerRadial,
     SetMovementBounds,
-    SetMovePolar,
-    SetMoveSpeed,
-    SetOrbitAngle,
-    SetOrbitRadius,
-    SetOrbitVels,
-    SetPos,
-    SetPosV800,
 )
 from ..num import add_norm_angle, f32, norm_angle
 from ..state import PLAYFIELD_W, Vec3
@@ -48,21 +30,24 @@ if TYPE_CHECKING:
 from .base import Handler
 
 
-def _set_pos(m: EclMachine, ins: SetPos) -> None:
+def set_pos(m: EclMachine, ins: EclInstr) -> None:
+    """直接设位置(x/y/z)。"""
     e = m.enemy
-    e.pos.set(m.fval(ins.x), m.fval(ins.y), m.fval(ins.z))
+    e.pos.set(m.fval(ins.x), m.fval(ins.y), m.fval(ins.z))  # type: ignore[attr-defined]
     e.clamp_pos()
 
 
-def _set_pos_v800(m: EclMachine, ins: SetPosV800) -> None:
+def set_pos_v800(m: EclMachine, ins: EclInstr) -> None:
+    """直接设位置(只有 x/y, z 恒 0)。"""
     e = m.enemy
-    e.pos.set(m.fval(ins.x), m.fval(ins.y), 0.0)
+    e.pos.set(m.fval(ins.x), m.fval(ins.y), 0.0)  # type: ignore[attr-defined]
     e.clamp_pos()
 
 
-def _set_axis_speed(m: EclMachine, ins: SetAxisSpeed) -> None:
+def set_axis_speed(m: EclMachine, ins: EclInstr) -> None:
+    """设轴向速度并按 atan2 回算朝向。"""
     e = m.enemy
-    e.axis_speed.set(m.fval(ins.x), m.fval(ins.y), m.fval(ins.z))
+    e.axis_speed.set(m.fval(ins.x), m.fval(ins.y), m.fval(ins.z))  # type: ignore[attr-defined]
     e.angle = f32(math.atan2(e.axis_speed.y, e.axis_speed.x))
     e.move_mode = 0
 
@@ -73,9 +58,10 @@ def _set_angular_vel(m: EclMachine, ins: SetAngularVel) -> None:
     e.move_mode = 1
 
 
-def _set_move_speed(m: EclMachine, ins: SetMoveSpeed) -> None:
+def set_move_speed(m: EclMachine, ins: EclInstr) -> None:
+    """设移动速度(移动模式 1)。"""
     e = m.enemy
-    e.move_speed = m.fval(ins.speed)
+    e.move_speed = m.fval(ins.speed)  # type: ignore[attr-defined]
     e.move_mode = 1
 
 
@@ -85,11 +71,11 @@ def _set_move_accel(m: EclMachine, ins: SetMoveAccel) -> None:
     e.move_mode = 1
 
 
-def _set_move_polar(m: EclMachine, ins: SetMovePolar) -> None:
-    """Angle + speed 直飞(v800, 移动模式 1)。"""
+def set_move_polar(m: EclMachine, ins: EclInstr) -> None:
+    """Angle + speed 直飞(移动模式 1)。"""
     e = m.enemy
-    e.angle = norm_angle(m.fval(ins.angle))
-    e.move_speed = m.fval(ins.speed)
+    e.angle = norm_angle(m.fval(ins.angle))  # type: ignore[attr-defined]
+    e.move_speed = m.fval(ins.speed)  # type: ignore[attr-defined]
     e.move_mode = 1
     e.move_interp_timer = e.move_interp_start_time = 0
 
@@ -142,24 +128,23 @@ def _move_dir_time(m: EclMachine, ins: MoveDirTime) -> None:
         )
 
 
-def _move_at_player_time(m: EclMachine, ins: MoveAtPlayerTime) -> None:
-    """限时朝自机位移(v800; duration <= 0 = 瞄准直飞)。"""
-    # EclRunLow.inl:543-560
+def move_at_player_time(m: EclMachine, ins: EclInstr) -> None:
+    """限时朝自机位移(duration <= 0 = 瞄准直飞, EclRunLow.inl:543-560)。"""
     e = m.enemy
-    duration = m.ival(ins.duration)
+    duration = m.ival(ins.duration)  # type: ignore[attr-defined]
     if duration <= 0:
-        e.angle = add_norm_angle(m.fval(ins.angle), m.angle_to_player())
-        e.move_speed = m.fval(ins.speed)
+        e.angle = add_norm_angle(m.fval(ins.angle), m.angle_to_player())  # type: ignore[attr-defined]
+        e.move_speed = m.fval(ins.speed)  # type: ignore[attr-defined]
         e.move_mode = 1
-        e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)
+        e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)  # type: ignore[attr-defined]
     else:
         # else 分支是不带瞄准的 ConfigurePolarMotion(EclRunLow.inl:558-560)
         _configure_polar_motion(
             m,
             duration,
-            m.ival(ins.easing),
-            norm_angle(m.fval(ins.angle)),
-            m.fval(ins.speed),
+            m.ival(ins.easing),  # type: ignore[attr-defined]
+            norm_angle(m.fval(ins.angle)),  # type: ignore[attr-defined]
+            m.fval(ins.speed),  # type: ignore[attr-defined]
         )
 
 
@@ -180,25 +165,28 @@ def _timed_polar_displacement(
     e.move_mode = 2
 
 
-def _move_boundary_aware(m: EclMachine, ins: MoveBoundaryAware) -> None:
-    """朝屏外逃的限时位移(v800)。"""
+def move_boundary_aware(m: EclMachine, ins: EclInstr) -> None:
+    """朝屏外逃的限时位移。"""
     e = m.enemy
-    duration = m.ival(ins.duration)
+    duration = m.ival(ins.duration)  # type: ignore[attr-defined]
     angle = m.exit_angle()
     if duration <= 0:
         e.angle = angle
-        e.move_speed = m.fval(ins.speed)
+        e.move_speed = m.fval(ins.speed)  # type: ignore[attr-defined]
         e.move_mode = 1
         e.move_interp_timer = e.move_interp_start_time = 0
     else:
         _timed_polar_displacement(
-            m, duration, m.ival(ins.easing), m.fval(ins.speed), angle
+            m,
+            duration,
+            m.ival(ins.easing),  # type: ignore[attr-defined]
+            m.fval(ins.speed),  # type: ignore[attr-defined]
+            angle,
         )
 
 
-def _move_random_biased(m: EclMachine, ins: MoveRandomBiased) -> None:
-    """3/4 概率偏向自机的随机限时位移(v800)。"""
-    # ApplyRandomBiasedMove(EclDependencies.cpp:188-274)
+def move_random_biased(m: EclMachine, ins: EclInstr) -> None:
+    """3/4 概率偏向自机的随机限时位移(ApplyRandomBiasedMove, EclDependencies.cpp:188-274)。"""
     e = m.enemy
     px, _, _ = m.host.player_position(m)
     if m.rng.int_below(4) != 0:
@@ -220,112 +208,121 @@ def _move_random_biased(m: EclMachine, ins: MoveRandomBiased) -> None:
         angle = -angle
     if e.pos.y > e.upper_move_limit.y - 48.0 and angle > 0.0:
         angle = -angle
-    duration = m.ival(ins.duration)
+    duration = m.ival(ins.duration)  # type: ignore[attr-defined]
     if duration <= 0:
         e.angle = angle
-        e.move_speed = m.fval(ins.speed)
+        e.move_speed = m.fval(ins.speed)  # type: ignore[attr-defined]
         e.move_mode = 1
         e.move_interp_timer = e.move_interp_start_time = 0
     else:
         _timed_polar_displacement(
-            m, duration, m.ival(ins.easing), m.fval(ins.speed), angle
+            m,
+            duration,
+            m.ival(ins.easing),  # type: ignore[attr-defined]
+            m.fval(ins.speed),  # type: ignore[attr-defined]
+            angle,
         )
 
 
-def _move_pos_time(m: EclMachine, ins: MovePosTime) -> None:
+def move_pos_time(m: EclMachine, ins: EclInstr) -> None:
+    """限时移动到目标点(x/y/z, 位移插值)。"""
     e = m.enemy
-    new_pos = Vec3(m.fval(ins.x), m.fval(ins.y), m.fval(ins.z))
+    new_pos = Vec3(m.fval(ins.x), m.fval(ins.y), m.fval(ins.z))  # type: ignore[attr-defined]
     e.move_interp = Vec3(new_pos.x - e.pos.x, new_pos.y - e.pos.y, new_pos.z - e.pos.z)
     e.move_interp_start_pos = e.pos.copy()
-    e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)
-    e.interp_easing = m.ival(ins.easing) & 0xFF
+    e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)  # type: ignore[attr-defined]
+    e.interp_easing = m.ival(ins.easing) & 0xFF  # type: ignore[attr-defined]
     e.move_mode = 2
     e.axis_speed = Vec3()
     if e.mirror:
         e.move_interp.x = -e.move_interp.x
 
 
-def _move_pos_time_v800(m: EclMachine, ins: MovePosTimeV800) -> None:
+def move_pos_time_v800(m: EclMachine, ins: EclInstr) -> None:
     """ConfigureRelativeMotion(EclHelpers.cpp:59-87): 目标点转位移插值(无 z)。"""
     e = m.enemy
-    e.move_interp = Vec3(m.fval(ins.x) - e.pos.x, m.fval(ins.y) - e.pos.y, 0.0)
+    e.move_interp = Vec3(m.fval(ins.x) - e.pos.x, m.fval(ins.y) - e.pos.y, 0.0)  # type: ignore[attr-defined]
     e.move_interp_start_pos = e.pos.copy()
-    e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)
-    e.interp_easing = m.ival(ins.easing)
+    e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)  # type: ignore[attr-defined]
+    e.interp_easing = m.ival(ins.easing)  # type: ignore[attr-defined]
     e.move_mode = 2
     e.axis_speed = Vec3()
     if e.mirror:
         e.move_interp.x = -e.move_interp.x
 
 
-def _move_orbit(m: EclMachine, ins: MoveOrbit) -> None:
+def move_orbit(m: EclMachine, ins: EclInstr) -> None:
+    """绕指定原点轨道(原点 x/y/z, 移动模式 3)。"""
     e = m.enemy
-    e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)
-    e.move_interp_start_pos.set(
-        m.fval(ins.origin_x), m.fval(ins.origin_y), m.fval(ins.origin_z)
-    )
-    e.move_angle = m.fval(ins.angle)
-    e.move_angular_velocity = m.fval(ins.angular_vel)
-    e.move_radius = m.fval(ins.radius)
-    e.move_radial_velocity = m.fval(ins.radial_vel)
-    e.move_mode = 3
-
-
-def _move_orbit_v800(m: EclMachine, ins: MoveOrbitV800) -> None:
-    e = m.enemy
-    e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)
-    e.move_interp_start_pos.set(m.fval(ins.origin_x), m.fval(ins.origin_y), 0.0)
-    e.move_angle = m.fval(ins.angle)
-    e.move_angular_velocity = m.fval(ins.angular_vel)
-    e.move_radius = m.fval(ins.radius)
-    e.move_radial_velocity = m.fval(ins.radial_vel)
-    e.move_mode = 3
-
-
-def _move_orbit_around_self(m: EclMachine, ins: MoveOrbitAroundSelf) -> None:
-    """绕当前位置轨道(半径 0 起, v800)。"""
-    e = m.enemy
-    e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)
-    e.move_interp_start_pos = e.pos.copy()
-    e.move_angle = m.fval(ins.angle)
-    e.move_angular_velocity = m.fval(ins.angular_vel)
-    e.move_radius = 0.0
-    e.move_radial_velocity = m.fval(ins.radial_vel)
-    e.move_mode = 3
-
-
-def _set_orbit_vels(m: EclMachine, ins: SetOrbitVels) -> None:
-    e = m.enemy
-    e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)
-    e.move_angular_velocity = m.fval(ins.angular_vel)
-    e.move_radial_velocity = m.fval(ins.radial_vel)
-    e.move_mode = 3
-
-
-def _set_orbit_radius(m: EclMachine, ins: SetOrbitRadius) -> None:
-    e = m.enemy
-    e.move_radius = m.fval(ins.radius)
-    e.move_radial_velocity = m.fval(ins.radial_vel)
-
-
-def _set_orbit_angle(m: EclMachine, ins: SetOrbitAngle) -> None:
-    e = m.enemy
-    e.move_angle = m.fval(ins.angle)
-    e.move_angular_velocity = m.fval(ins.angular_vel)
-
-
-# 移动插值定时器 3 合一(v0): polar(模式1) / radial(模式3) / interp(模式2)
-_MOVE_INTERP_MODE = {
-    SetMoveInterpTimerPolar: 1,
-    SetMoveInterpTimerRadial: 3,
-    SetMoveInterpTimerInterp: 2,
-}
-
-
-def _set_move_interp_timer(m: EclMachine, ins: EclInstr) -> None:
-    e = m.enemy
-    e.move_mode = _MOVE_INTERP_MODE[type(ins)]
     e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)  # type: ignore[attr-defined]
+    e.move_interp_start_pos.set(
+        m.fval(ins.origin_x),  # type: ignore[attr-defined]
+        m.fval(ins.origin_y),  # type: ignore[attr-defined]
+        m.fval(ins.origin_z),  # type: ignore[attr-defined]
+    )
+    e.move_angle = m.fval(ins.angle)  # type: ignore[attr-defined]
+    e.move_angular_velocity = m.fval(ins.angular_vel)  # type: ignore[attr-defined]
+    e.move_radius = m.fval(ins.radius)  # type: ignore[attr-defined]
+    e.move_radial_velocity = m.fval(ins.radial_vel)  # type: ignore[attr-defined]
+    e.move_mode = 3
+
+
+def move_orbit_v800(m: EclMachine, ins: EclInstr) -> None:
+    """绕指定原点轨道(原点只有 x/y, 移动模式 3)。"""
+    e = m.enemy
+    e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)  # type: ignore[attr-defined]
+    e.move_interp_start_pos.set(m.fval(ins.origin_x), m.fval(ins.origin_y), 0.0)  # type: ignore[attr-defined]
+    e.move_angle = m.fval(ins.angle)  # type: ignore[attr-defined]
+    e.move_angular_velocity = m.fval(ins.angular_vel)  # type: ignore[attr-defined]
+    e.move_radius = m.fval(ins.radius)  # type: ignore[attr-defined]
+    e.move_radial_velocity = m.fval(ins.radial_vel)  # type: ignore[attr-defined]
+    e.move_mode = 3
+
+
+def move_orbit_around_self(m: EclMachine, ins: EclInstr) -> None:
+    """绕当前位置轨道(半径 0 起, 移动模式 3)。"""
+    e = m.enemy
+    e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)  # type: ignore[attr-defined]
+    e.move_interp_start_pos = e.pos.copy()
+    e.move_angle = m.fval(ins.angle)  # type: ignore[attr-defined]
+    e.move_angular_velocity = m.fval(ins.angular_vel)  # type: ignore[attr-defined]
+    e.move_radius = 0.0
+    e.move_radial_velocity = m.fval(ins.radial_vel)  # type: ignore[attr-defined]
+    e.move_mode = 3
+
+
+def set_orbit_vels(m: EclMachine, ins: EclInstr) -> None:
+    """设轨道角速度/径向速度(移动模式 3)。"""
+    e = m.enemy
+    e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)  # type: ignore[attr-defined]
+    e.move_angular_velocity = m.fval(ins.angular_vel)  # type: ignore[attr-defined]
+    e.move_radial_velocity = m.fval(ins.radial_vel)  # type: ignore[attr-defined]
+    e.move_mode = 3
+
+
+def set_orbit_radius(m: EclMachine, ins: EclInstr) -> None:
+    """设轨道半径/径向速度。"""
+    e = m.enemy
+    e.move_radius = m.fval(ins.radius)  # type: ignore[attr-defined]
+    e.move_radial_velocity = m.fval(ins.radial_vel)  # type: ignore[attr-defined]
+
+
+def set_orbit_angle(m: EclMachine, ins: EclInstr) -> None:
+    """设轨道角/角速度。"""
+    e = m.enemy
+    e.move_angle = m.fval(ins.angle)  # type: ignore[attr-defined]
+    e.move_angular_velocity = m.fval(ins.angular_vel)  # type: ignore[attr-defined]
+
+
+def move_interp_timer(mode: int) -> Handler:
+    """移动插值定时器 handler 工厂: mode = 移动模式(1 polar / 2 interp / 3 radial)。"""
+
+    def handler(m: EclMachine, ins: EclInstr) -> None:
+        e = m.enemy
+        e.move_mode = mode
+        e.move_interp_timer = e.move_interp_start_time = m.ival(ins.duration)  # type: ignore[attr-defined]
+
+    return handler
 
 
 def _set_movement_bounds(m: EclMachine, ins: SetMovementBounds) -> None:
@@ -341,37 +338,18 @@ def _disable_movement_bounds(m: EclMachine, ins: DisableMovementBounds) -> None:
     m.enemy.has_movement_bounds = 0
 
 
-def _set_min_player_distance(m: EclMachine, ins: SetMinPlayerDistance) -> None:
-    d = m.fval(ins.distance)
+def set_min_player_distance(m: EclMachine, ins: EclInstr) -> None:
+    """距自机过近压住弹幕的距离阈值(存平方, EclRunHigh.inl:922-935)。"""
+    d = m.fval(ins.distance)  # type: ignore[attr-defined]
     m.enemy.min_player_dist_sq = f32(d * d)
 
 
-#: 移动指令类 → handler
+#: 移动指令类 → handler(两作共享部分)
 MOVEMENT: dict[type[EclInstr], Handler] = {
-    SetPos: _set_pos,
-    SetPosV800: _set_pos_v800,
-    SetAxisSpeed: _set_axis_speed,
     SetAngularVel: _set_angular_vel,
-    SetMoveSpeed: _set_move_speed,
     SetMoveAccel: _set_move_accel,
-    SetMovePolar: _set_move_polar,
     MoveAtPlayer: _move_at_player,
-    MoveAtPlayerTime: _move_at_player_time,
     MoveDirTime: _move_dir_time,
-    MoveBoundaryAware: _move_boundary_aware,
-    MoveRandomBiased: _move_random_biased,
-    MovePosTime: _move_pos_time,
-    MovePosTimeV800: _move_pos_time_v800,
-    MoveOrbit: _move_orbit,
-    MoveOrbitV800: _move_orbit_v800,
-    MoveOrbitAroundSelf: _move_orbit_around_self,
-    SetOrbitVels: _set_orbit_vels,
-    SetOrbitRadius: _set_orbit_radius,
-    SetOrbitAngle: _set_orbit_angle,
-    SetMoveInterpTimerPolar: _set_move_interp_timer,
-    SetMoveInterpTimerRadial: _set_move_interp_timer,
-    SetMoveInterpTimerInterp: _set_move_interp_timer,
     SetMovementBounds: _set_movement_bounds,
     DisableMovementBounds: _disable_movement_bounds,
-    SetMinPlayerDistance: _set_min_player_distance,
 }

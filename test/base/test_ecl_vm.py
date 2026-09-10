@@ -7,7 +7,7 @@ from typing import get_args
 import msgspec
 import pytest
 
-from touhou.engine.ecl import HANDLERS, TL_HANDLERS, EclHost, EclMachine
+from touhou.engine.ecl import HANDLERS, EclHost, EclMachine
 from touhou.engine.rng import Rng
 from touhou.schemas.ecl import (
     Add,
@@ -20,12 +20,10 @@ from touhou.schemas.ecl import (
     ImmFloat,
     ImmInt,
     InitInterp,
-    Instruction,
     Jump,
     JumpIfEq,
     JumpIfLt,
     Mod,
-    MovePosTime,
     MulFloat,
     Nop,
     SetExIns,
@@ -33,13 +31,11 @@ from touhou.schemas.ecl import (
     SetInt,
     SetInterrupt,
     SetLife,
-    SetPeriodicCallback,
-    SetPos,
     SetWaitTimer,
+    SharedInstruction,
     Stop,
     SubCall,
     SubRet,
-    TimelineInstr,
     VarRef,
 )
 
@@ -121,9 +117,8 @@ def run_frames(m: EclMachine, n: int) -> None:
 
 
 def test_handler_registry_covers_union() -> None:
-    """指令 union 全覆盖: 每个类都有注册 handler, 没有漏网分派。"""
-    assert set(get_args(Instruction)) == set(HANDLERS)
-    assert set(get_args(TimelineInstr)) == set(TL_HANDLERS)
+    """共享指令 union 全覆盖: 每个类都有注册 handler, 没有漏网分派。"""
+    assert set(get_args(SharedInstruction)) == set(HANDLERS)
 
 
 # ---- 变量系统 ----
@@ -359,30 +354,6 @@ def test_interrupt_call() -> None:
     assert m.step() is False  # Stop(time=6)
 
 
-def test_periodic_callback() -> None:
-    """周期回调: 计数到点进 sub, 变量区经 saved 快照往返。"""
-    sub0 = [
-        ins(SetPeriodicCallback, 0, timer=ImmInt(2), sub_id=ImmInt(1)),
-        ins(Nop, 99),
-    ]
-    sub1 = [
-        ins(Add, 0, dest=VarRef(10003), a=VarRef(10003), b=ImmInt(1)),
-        ins(SubRet, 0),
-    ]
-    m = EclMachine(
-        build_file(sub0, sub1),
-        RecHost(),
-        Rng(0),
-        int_var_ids=INT_VARS,
-        float_var_ids=FLOAT_VARS,
-    )
-    m.start(0)
-    run_frames(m, 3)
-    assert m.enemy.saved_int_vars.get(10003) == 1  # 首次触发: 空快照 0+1
-    run_frames(m, 1)
-    assert m.enemy.saved_int_vars.get(10003) == 2  # 第二次: 快照载入 1+1
-
-
 def test_ex_instr_dispatch() -> None:
     """SetExIns 注册每帧 ex 回调; noop idx 不分发; 负 idx 注销。"""
     host = RecHost()
@@ -424,55 +395,6 @@ def test_auto_shoot_timer() -> None:
 
 
 # ---- 移动/插值 ----
-
-
-def test_move_pos_time_linear() -> None:
-    """限时移动到目标点: 4 帧线性走完 (0,0,0)→(8,0,0), 每帧 2。"""
-    m = make(
-        [
-            ins(SetPos, 0, x=ImmFloat(0.0), y=ImmFloat(0.0), z=ImmFloat(0.0)),
-            ins(
-                MovePosTime,
-                0,
-                duration=ImmInt(4),
-                easing=ImmInt(0),
-                x=ImmFloat(8.0),
-                y=ImmFloat(0.0),
-                z=ImmFloat(0.0),
-            ),
-            ins(Nop, 99),
-        ]
-    )
-    for expect in (2.0, 4.0, 6.0, 8.0):
-        m.step()
-        assert m.enemy.pos.x == pytest.approx(expect)
-    assert m.enemy.move_mode == 0  # 走完归零
-    assert m.enemy.axis_speed.x == 0.0
-
-
-def test_movement_bounds_clamp() -> None:
-    """移动范围: SetPos/帧积分都被 ClampPos 夹住。"""
-    from touhou.schemas.ecl import SetAxisSpeed, SetMovementBounds
-
-    m = make(
-        [
-            ins(
-                SetMovementBounds,
-                0,
-                x_min=ImmFloat(-10.0),
-                y_min=ImmFloat(-10.0),
-                x_max=ImmFloat(10.0),
-                y_max=ImmFloat(10.0),
-            ),
-            ins(SetPos, 0, x=ImmFloat(100.0), y=ImmFloat(0.0), z=ImmFloat(0.0)),
-            ins(SetAxisSpeed, 0, x=ImmFloat(50.0), y=ImmFloat(0.0), z=ImmFloat(0.0)),
-            ins(Nop, 99),
-        ]
-    )
-    m.step()
-    assert m.enemy.pos.x == 10.0  # SetPos 当场夹
-    m.step()
-    assert m.enemy.pos.x == 10.0  # 积分后仍夹在界内
 
 
 def test_init_interp_lerp() -> None:

@@ -2,6 +2,8 @@
 
 语义逐句移植 old/touhou/engine/ecl_std_ops.py 与 old/touhou/games/th07/ecl_vm.py
 的同名 handler; 操作数已是 schemas 层解好的数据(ImmInt/ImmFloat/VarRef)。
+CONTROL 只注册两作共享的指令类; 作品专属指令的 handler 是公开函数
+(set_run_interrupt 等), 由 games 侧绑定自己的指令类后注入 VM。
 """
 
 from __future__ import annotations
@@ -12,7 +14,6 @@ from typing import TYPE_CHECKING
 
 from ....schemas.ecl import (
     AddTime,
-    CallSubOnBoss,
     DecJump,
     EclInstr,
     Jump,
@@ -30,16 +31,11 @@ from ....schemas.ecl import (
     JumpIfNeqFloat,
     Nop,
     RunExIns,
-    RunPendingSub,
-    SetBossPendingSub,
-    SetChildContext,
     SetExIns,
     SetInterrupt,
     SetInvincibilityTimer,
     SetLife,
     SetNoStackRet,
-    SetPeriodicCallback,
-    SetRunInterrupt,
     SetTimer,
     SetWaitTimer,
     Stop,
@@ -162,32 +158,48 @@ def _set_interrupt(m: EclMachine, ins: SetInterrupt) -> None:
     m.enemy.interrupts[m.ival(ins.slot) & 31] = m.ival(ins.sub_id)
 
 
-def _set_run_interrupt(m: EclMachine, ins: SetRunInterrupt) -> Step | None:
-    """登记并立即进 interrupt sub(v0 专属)。"""
+# ---- 作品专属指令的机制 handler(games 侧绑定自己的指令类后注入) ----
+
+
+def set_run_interrupt(m: EclMachine, ins: EclInstr) -> Step | None:
+    """登记并立即进 interrupt sub。"""
     e = m.enemy
-    e.run_interrupt = m.ival(ins.slot)
+    e.run_interrupt = m.ival(ins.slot)  # type: ignore[attr-defined]
     if not m.interrupt_call(e.interrupts[e.run_interrupt]):
         return Step.HALT
     return Step.RESTART
 
 
-def _run_pending_sub(m: EclMachine, ins: RunPendingSub) -> Step | None:
-    """Pending 槽位 → 压栈调 sub(v800; pending 表在宿主侧)。"""
-    if m.host.run_pending_sub(m, m.ival(ins.slot)):
+def run_pending_sub(m: EclMachine, ins: EclInstr) -> Step | None:
+    """Pending 槽位 → 压栈调 sub(pending 表在宿主侧)。"""
+    if m.host.run_pending_sub(m, m.ival(ins.slot)):  # type: ignore[attr-defined]
         return Step.RESTART
     return None
 
 
-def _set_child_context(m: EclMachine, ins: SetChildContext) -> None:
-    m.host.set_child_context(m, m.ival(ins.slot), m.ival(ins.sub_id))
+def set_child_context(m: EclMachine, ins: EclInstr) -> None:
+    """安装/释放 child 上下文块(宿主侧)。"""
+    m.host.set_child_context(m, m.ival(ins.slot), m.ival(ins.sub_id))  # type: ignore[attr-defined]
 
 
-def _call_sub_on_boss(m: EclMachine, ins: CallSubOnBoss) -> None:
-    m.host.call_sub_on_boss(m, m.ival(ins.boss_idx), ins.sub_id)
+def call_sub_on_boss(m: EclMachine, ins: EclInstr) -> None:
+    """让指定 boss 压栈调 sub(宿主侧)。"""
+    m.host.call_sub_on_boss(m, m.ival(ins.boss_idx), ins.sub_id)  # type: ignore[attr-defined]
 
 
-def _set_boss_pending_sub(m: EclMachine, ins: SetBossPendingSub) -> None:
-    m.host.set_boss_pending_sub(m.ival(ins.boss_idx), m.ival(ins.sub_id))
+def set_boss_pending_sub(m: EclMachine, ins: EclInstr) -> None:
+    """设置 boss 的 pendingEclSubroutineIndex(宿主侧)。"""
+    m.host.set_boss_pending_sub(m.ival(ins.boss_idx), m.ival(ins.sub_id))  # type: ignore[attr-defined]
+
+
+def set_periodic_callback(m: EclMachine, ins: EclInstr) -> None:
+    """设周期回调(timer 帧一次进 sub_id, 变量区快照)。"""
+    e, ctx = m.enemy, m.current
+    e.periodic_timer = m.ival(ins.timer)  # type: ignore[attr-defined]
+    e.periodic_callback_sub = m.ival(ins.sub_id)  # type: ignore[attr-defined]
+    e.periodic_counter = 0
+    e.saved_int_vars = dict(ctx.int_vars)
+    e.saved_float_vars = dict(ctx.float_vars)
 
 
 # ---- VM 机制系(状态在 engine, 语义触发在宿主) ----
@@ -224,16 +236,7 @@ def _set_invincibility_timer(m: EclMachine, ins: SetInvincibilityTimer) -> None:
     m.enemy.invincibility_timer = m.ival(ins.frames)
 
 
-def _set_periodic_callback(m: EclMachine, ins: SetPeriodicCallback) -> None:
-    e, ctx = m.enemy, m.current
-    e.periodic_timer = m.ival(ins.timer)
-    e.periodic_callback_sub = m.ival(ins.sub_id)
-    e.periodic_counter = 0
-    e.saved_int_vars = dict(ctx.int_vars)
-    e.saved_float_vars = dict(ctx.float_vars)
-
-
-#: 控制流指令类 → handler
+#: 控制流指令类 → handler(两作共享部分)
 CONTROL: dict[type[EclInstr], Handler] = {
     Nop: _nop,
     Stop: _stop,
@@ -258,15 +261,9 @@ CONTROL: dict[type[EclInstr], Handler] = {
     AddTime: _add_time,
     SetNoStackRet: _set_no_stack_ret,
     SetInterrupt: _set_interrupt,
-    SetRunInterrupt: _set_run_interrupt,
-    RunPendingSub: _run_pending_sub,
-    SetChildContext: _set_child_context,
-    CallSubOnBoss: _call_sub_on_boss,
-    SetBossPendingSub: _set_boss_pending_sub,
     SetExIns: _set_ex_ins,
     RunExIns: _run_ex_ins,
     SetLife: _set_life,
     SetTimer: _set_timer,
     SetInvincibilityTimer: _set_invincibility_timer,
-    SetPeriodicCallback: _set_periodic_callback,
 }

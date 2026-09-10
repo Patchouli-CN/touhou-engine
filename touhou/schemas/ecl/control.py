@@ -1,4 +1,4 @@
-"""ECL 控制流指令(结束/等待/跳转/调用/中断)。"""
+"""ECL 控制流指令(结束/等待/跳转/调用/中断), 两作共享部分。"""
 
 from __future__ import annotations
 
@@ -183,39 +183,3 @@ class SetInterrupt(EclInstr, frozen=True, tag="set_interrupt"):
 
     sub_id: IntOperand
     slot: IntOperand
-
-
-class SetRunInterrupt(EclInstr, frozen=True, tag="set_run_interrupt"):
-    """登记并立即进 interrupt sub(v0 专属)。"""
-
-    slot: IntOperand
-
-
-class RunPendingSub(EclInstr, frozen=True, tag="run_pending_sub"):
-    """pending 槽位 → eclSubroutineIds[slot] 压栈调用(v800 专属)。"""
-
-    # EclRunHigh.inl:492-519
-    slot: IntOperand
-
-
-class SetChildContext(EclInstr, frozen=True, tag="set_child_context"):
-    """安装/释放 child 上下文块(sub_id < 0 = 释放, v800 专属)。"""
-
-    # EclRunHigh.inl:580-613
-    slot: IntOperand
-    sub_id: IntOperand
-
-
-class CallSubOnBoss(EclInstr, frozen=True, tag="call_sub_on_boss"):
-    """让指定 boss 压栈调 sub(sub_id 为 raw, v800 专属)。"""
-
-    # EclRunLow.inl:712-735
-    boss_idx: IntOperand
-    sub_id: int
-
-
-class SetBossPendingSub(EclInstr, frozen=True, tag="set_boss_pending_sub"):
-    """设置 boss 的 pendingEclSubroutineIndex(v800 专属)。"""
-
-    boss_idx: IntOperand
-    sub_id: IntOperand

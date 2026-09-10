@@ -1,21 +1,19 @@
-"""ECL 指令字节流 decode/encode(规格驱动的取字段机制 + 符卡定制编解码)。"""
+"""ECL 指令字节流 decode/encode(规格驱动的取字段机制 + 注入的指令集)。
+
+指令集是作品数据: games/thNN 侧组 InstrSet(opcode 表 + 定制编解码钩子)
+注入, 本模块只有机制; 版本布局差异由 parse_ecl 的 version 参数消化。
+"""
 
 from __future__ import annotations
 
 import struct
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from collections.abc import Callable, Mapping
+from typing import Any, NamedTuple
 
 from ..exceptions import ParseError
 from .base import EclInstr, ImmFloat, ImmInt, VarRef
-from .boss import BeginSpellcard, BeginSpellcardV800
 from .control import SubEnd
 from .spec import _A, _Entry
-from .tables import _REVERSE, _TABLES
-
-if TYPE_CHECKING:
-    from . import Instruction  # 仅类型检查期(__init__ 运行时依赖本模块)
-
 
 # ---- 指令头常量与字视图辅助 ----
 
@@ -24,6 +22,33 @@ _HEADER_SIZE = _INSTR_HEADER.size  # 12
 
 _TERMINATOR_ID = -1
 _SPELLCARD_XOR = 0xAA  # 符卡字符串 XOR(v0/v800 同, EclManager.cpp BeginSpellcard)
+
+#: 定制 decode 钩子: (公共字段, 参数字, paramMask) → 指令对象
+CustomDecode = Callable[[dict[str, Any], tuple[int, ...], int], EclInstr]
+#: 定制 encode 钩子: 指令对象 → 参数字列表
+CustomEncode = Callable[[Any], list[int]]
+
+
+class InstrSet(NamedTuple):
+    """一套注入的作品指令集: opcode 表 + 定制编解码钩子 + encode 反查表。"""
+
+    entries: Mapping[int, _Entry]
+    reverse: Mapping[type[EclInstr], list[tuple[int, _Entry]]]
+    custom_decode: Mapping[type[EclInstr], CustomDecode]
+    custom_encode: Mapping[type[EclInstr], CustomEncode]
+
+
+def build_instr_set(
+    entries: dict[int, _Entry],
+    *,
+    custom_decode: Mapping[type[EclInstr], CustomDecode] | None = None,
+    custom_encode: Mapping[type[EclInstr], CustomEncode] | None = None,
+) -> InstrSet:
+    """由 opcode 表装配指令集; 反查表按 consts 字段值匹配实例(弹幕 9 合一等)。"""
+    reverse: dict[type[EclInstr], list[tuple[int, _Entry]]] = {}
+    for op, e in entries.items():
+        reverse.setdefault(e.cls, []).append((op, e))
+    return InstrSet(entries, reverse, custom_decode or {}, custom_encode or {})
 
 
 def _i32(w: int) -> int:
@@ -182,7 +207,7 @@ def _spec_rest(spec: tuple[_A, ...]) -> _A | None:
     return None
 
 
-# ---- 符卡指令定制编解码(内嵌 XOR 0xAA 字符串, 字段规格表达不了) ----
+# ---- 符卡字符串编解码(内嵌 XOR 0xAA 文本; 作品定制钩子复用) ----
 
 
 def _decode_text(words: tuple[int, ...]) -> str:
@@ -199,71 +224,8 @@ def _encode_text(text: str, nbytes: int) -> list[int]:
     return list(struct.unpack(f"<{nbytes // 4}I", enc))
 
 
-def _decode_spellcard_v0(
-    base: dict[str, Any], words: tuple[int, ...], mask: int
-) -> EclInstr:
-    # v0 布局: word0 = gui_id i16|spellcard_idx u16, word1-12 = 符卡名 48B
-    # (EclManager.cpp BeginSpellcard: 名字取 instr->args[1] 起 0x30 字节)
-    if len(words) != 13:
-        raise ParseError(f"begin_spellcard 参数数不符: {len(words)} != 13")
-    return BeginSpellcard(
-        **base,
-        gui_id=_i16(words[0], 0),
-        spellcard_idx=_u16(words[0], 1),
-        name=_decode_text(words[1:13]),
-    )
-
-
-def _decode_spellcard_v800(
-    base: dict[str, Any], words: tuple[int, ...], mask: int
-) -> EclInstr:
-    # v800 布局(EclDependencies.cpp:18-36): word0 = face i16|number u16,
-    # bonus i32 @word1, name[48] @word2, owner[48] @word14, comment[64]×2 @word26/42
-    if len(words) != 58:
-        raise ParseError(f"begin_spellcard_v800 参数数不符: {len(words)} != 58")
-    return BeginSpellcardV800(
-        **base,
-        gui_id=_i16(words[0], 0),
-        spellcard_idx=_u16(words[0], 1),
-        bonus=_i32(words[1]),
-        name=_decode_text(words[2:14]),
-        owner=words[14:26],
-        comment1=words[26:42],
-        comment2=words[42:58],
-    )
-
-
-def _encode_spellcard_v0(instr: BeginSpellcard) -> list[int]:
-    words = [(instr.gui_id & 0xFFFF) | ((instr.spellcard_idx & 0xFFFF) << 16)]
-    return words + _encode_text(instr.name, 48)
-
-
-def _encode_spellcard_v800(instr: BeginSpellcardV800) -> list[int]:
-    words = [(instr.gui_id & 0xFFFF) | ((instr.spellcard_idx & 0xFFFF) << 16)]
-    words.append(instr.bonus & 0xFFFFFFFF)
-    words += _encode_text(instr.name, 48)
-    for raw in (instr.owner, instr.comment1, instr.comment2):
-        words.extend(raw)
-    return words
-
-
-_CUSTOM_DECODE: dict[
-    type[EclInstr], Callable[[dict[str, Any], tuple[int, ...], int], EclInstr]
-] = {
-    BeginSpellcard: _decode_spellcard_v0,
-    BeginSpellcardV800: _decode_spellcard_v800,
-}
-_CUSTOM_ENCODE: dict[type[EclInstr], Callable[[Any], list[int]]] = {
-    BeginSpellcard: _encode_spellcard_v0,
-    BeginSpellcardV800: _encode_spellcard_v800,
-}
-
-
-def decode_instr(data: bytes, p: int, *, version: int = 0) -> Instruction:
+def decode_instr(data: bytes, p: int, *, instrs: InstrSet) -> EclInstr:
     """把 p 处一条指令 decode 成指令对象(12 字节头 + 4 字节倍数的参数区)。"""
-    table = _TABLES.get(version)
-    if table is None:
-        raise ParseError(f"未知 ecl 格式版本: {version:#x} (已知: {sorted(_TABLES)})")
     if p + _HEADER_SIZE > len(data):
         raise ParseError(f"ecl 指令头越界 (off={p:#x})")
     time, opcode, size, _unused, skip, mask = _INSTR_HEADER.unpack_from(data, p)
@@ -276,14 +238,12 @@ def decode_instr(data: bytes, p: int, *, version: int = 0) -> Instruction:
     base: dict[str, Any] = {"offset": p, "time": time, "skip_difficulty": skip}
     if opcode == _TERMINATOR_ID:
         return SubEnd(**base, rest=words)
-    entry = table.get(opcode)
+    entry = instrs.entries.get(opcode)
     if entry is None:
-        raise ParseError(
-            f"未知 ecl 指令 opcode: {opcode} (off={p:#x}, version={version:#x})"
-        )
-    custom = _CUSTOM_DECODE.get(entry.cls)
+        raise ParseError(f"未知 ecl 指令 opcode: {opcode} (off={p:#x})")
+    custom = instrs.custom_decode.get(entry.cls)
     if custom is not None:
-        return cast("Instruction", custom(base, words, mask))
+        return custom(base, words, mask)
     rest = _spec_rest(entry.args)
     need = _spec_nwords(entry.args)
     if rest is not None:
@@ -310,38 +270,31 @@ def decode_instr(data: bytes, p: int, *, version: int = 0) -> Instruction:
     for name, vals in grouped.items():
         kwargs[name] = tuple(vals)
     kwargs.update(entry.consts)
-    return cast("Instruction", entry.cls(**base, **kwargs))
+    return entry.cls(**base, **kwargs)
 
 
-def encode_instr(instr: Instruction, *, version: int = 0) -> bytes:
+def encode_instr(instr: EclInstr, *, instrs: InstrSet) -> bytes:
     """把指令对象写回二进制(decode 的逆运算; unused 头字节写 0)。
 
-    paramMask 从操作数种类推导(VarRef → 置位); 布局分叉的指令须用
-    与 decode 相同的 version, 否则抛 ParseError。
+    paramMask 从操作数种类推导(VarRef → 置位); instrs 必须与 decode
+    用同一套指令集, 否则抛 ParseError。
     """
     if isinstance(instr, SubEnd):
         return _INSTR_HEADER.pack(
             instr.time, _TERMINATOR_ID, _HEADER_SIZE, 0, instr.skip_difficulty, 0
         )
-    rev = _REVERSE.get(version)
-    if rev is None:
-        raise ParseError(f"未知 ecl 格式版本: {version:#x} (已知: {sorted(_REVERSE)})")
-    candidates = rev.get(type(instr))
+    candidates = instrs.reverse.get(type(instr))
     if candidates is None:
-        raise ParseError(
-            f"指令 {type(instr).__name__} 不在 version={version:#x} 的编号表里"
-        )
+        raise ParseError(f"指令 {type(instr).__name__} 不在指令集的编号表里")
     found: tuple[int, _Entry] | None = None
     for op, entry in candidates:
         if all(getattr(instr, k) == v for k, v in entry.consts.items()):
             found = (op, entry)
             break
     if found is None:
-        raise ParseError(
-            f"指令 {instr!r} 的常量字段与 version={version:#x} 表项全不匹配"
-        )
+        raise ParseError(f"指令 {instr!r} 的常量字段与指令集表项全不匹配")
     opcode, entry = found
-    custom = _CUSTOM_ENCODE.get(type(instr))
+    custom = instrs.custom_encode.get(type(instr))
     if custom is not None:
         words = custom(instr)
         size = _HEADER_SIZE + 4 * len(words)

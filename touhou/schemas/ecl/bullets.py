@@ -1,4 +1,4 @@
-"""ECL 弹幕/激光指令(发射参数/射击间隔/子弹变换/激光槽)。"""
+"""ECL 弹幕/激光指令(发射参数/射击间隔/子弹变换/激光槽), 两作共享部分。"""
 
 from __future__ import annotations
 
@@ -38,26 +38,6 @@ class SetShootIntervalRand(EclInstr, frozen=True, tag="set_shoot_interval_rand")
     interval: IntOperand
 
 
-class DisableBullets(EclInstr, frozen=True, tag="disable_bullets"):
-    """停弹幕发射(v0 专属)。"""
-
-
-class EnableBullets(EclInstr, frozen=True, tag="enable_bullets"):
-    """恢复弹幕发射(v0 专属)。"""
-
-
-class DeferBulletPattern(EclInstr, frozen=True, tag="defer_bullet_pattern"):
-    """弹幕指令延迟到自动射击时重新派发(v800 专属)。"""
-
-    # ENEMY_FLAG_DEFER_BULLET_PATTERN(EclRunHigh.inl:174-181)
-
-
-class DisableDeferBulletPattern(
-    EclInstr, frozen=True, tag="disable_defer_bullet_pattern"
-):
-    """取消弹幕延迟派发(v800 专属)。"""
-
-
 class SpawnPrevBulletPattern(EclInstr, frozen=True, tag="spawn_prev_bullet_pattern"):
     """按持久 descriptor 再发一次上一波弹幕。"""
 
@@ -79,12 +59,6 @@ class RemoveAllBullets(EclInstr, frozen=True, tag="remove_all_bullets"):
 
     # v0=80(mode 1)/146(mode 0); v800=162(mode 4, BulletManager.cpp:502-505)
     mode: int
-
-
-class ClearBulletsForTransition(
-    EclInstr, frozen=True, tag="clear_bullets_for_transition"
-):
-    """符卡转场清弹(v800 专属)。"""
 
 
 class SetBulletSound(EclInstr, frozen=True, tag="set_bullet_sound"):
@@ -109,67 +83,6 @@ class RemoveBulletsRadius(EclInstr, frozen=True, tag="remove_bullets_radius"):
     """清以敌为中心 radius 内的弹。"""
 
     radius: FloatOperand
-
-
-class SetShootOffset(EclInstr, frozen=True, tag="set_shoot_offset"):
-    """设发射点相对偏移(x/y/z, v0 专属)。"""
-
-    x: FloatOperand
-    y: FloatOperand
-    z: FloatOperand
-
-
-class SetShootOffsetV800(EclInstr, frozen=True, tag="set_shoot_offset_v800"):
-    """设发射点相对偏移(v800 版: 只有 x/y)。"""
-
-    x: FloatOperand
-    y: FloatOperand
-
-
-class SpawnLaserPattern(EclInstr, frozen=True, tag="spawn_laser_pattern"):
-    """生成激光(v0 版: width/计时/flags 全 raw; moving = 跟随敌人)。"""
-
-    # v0=82/83; LaserSpawnArgs: sprite i16|color i16 @word0, 之后 angle/speed/
-    # start_offset/end_offset/start_length(f32, bit2-6), width f32 raw,
-    # start_time/duration/end_time/hitbox_start/hitbox_end i32 raw, flags raw
-    moving: bool
-    sprite: int
-    sprite_offset: IntOperand
-    angle: FloatOperand
-    speed: FloatOperand
-    start_offset: FloatOperand
-    end_offset: FloatOperand
-    start_length: FloatOperand
-    width: float
-    start_time: int
-    duration: int
-    end_time: int
-    hitbox_start_time: int
-    hitbox_end_time: int
-    flags: int
-
-
-class SpawnLaserPatternV800(EclInstr, frozen=True, tag="spawn_laser_pattern_v800"):
-    """生成激光(v800 版: width/计时也可变参; aimed = 出生即瞄自机)。"""
-
-    # v800=114/115(EclRunHigh.inl:260-334); 掩码位: color=bit1, angle=bit2,
-    # speed=bit3, start/end_offset=bit4/5, start_length=bit6, width=bit7,
-    # start_time=bit8, duration=bit9, despawn_duration=bit10
-    aimed: bool
-    sprite: int
-    sprite_offset: IntOperand
-    angle: FloatOperand
-    speed: FloatOperand
-    start_offset: FloatOperand
-    end_offset: FloatOperand
-    start_length: FloatOperand
-    width: FloatOperand
-    start_time: IntOperand
-    duration: IntOperand
-    despawn_duration: IntOperand
-    hitbox_start_time: int
-    hitbox_end_delay: int
-    flags: int
 
 
 class SetLaserIdx(EclInstr, frozen=True, tag="set_laser_idx"):
@@ -206,19 +119,6 @@ class SetLaserPosRel(EclInstr, frozen=True, tag="set_laser_pos_rel"):
     x: FloatOperand
     y: FloatOperand
     z: FloatOperand
-
-
-class TestLaserNotInUse(EclInstr, frozen=True, tag="test_laser_not_in_use"):
-    """测激光槽是否空闲, 结果写上下文标记(v0 专属)。"""
-
-    idx: IntOperand
-
-
-class TestLaserInUse(EclInstr, frozen=True, tag="test_laser_in_use"):
-    """测激光是否在用, 结果写 extraIntVariables[2](v800 专属)。"""
-
-    # EclRunHigh.inl:385-393
-    idx: IntOperand
 
 
 class StopLaser(EclInstr, frozen=True, tag="stop_laser"):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import msgspec
 
+from touhou.games.th07.ecl_table import ECL_INSTR_SET, parse_ecl
 from touhou.schemas.archive import load_entry, open_archive
 from touhou.schemas.ecl import (
     EclInstr,
@@ -11,7 +12,6 @@ from touhou.schemas.ecl import (
     TlInstr,
     decode_instr,
     encode_instr,
-    parse_ecl,
 )
 
 from .conftest import DATA, needs_data
@@ -45,5 +45,7 @@ def test_ecl_encode_self_consistent() -> None:
         f = parse_ecl(load_entry(arc, name))
         for sub in f.subs:
             for ins in sub.instrs:
-                again = decode_instr(encode_instr(ins), 0)
+                again = decode_instr(
+                    encode_instr(ins, instrs=ECL_INSTR_SET), 0, instrs=ECL_INSTR_SET
+                )
                 assert again == msgspec.structs.replace(ins, offset=0), (name, ins)

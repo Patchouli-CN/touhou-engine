@@ -26,7 +26,7 @@ from ...schemas.ecl import (
 )
 from ...utils.logger import LoggerManager
 from ..rng import Rng
-from .handlers import HANDLERS, Step
+from .handlers import HANDLERS, Handler, Step
 from .host import EclHost
 from .num import add_norm_angle, ease, f32, i32
 from .state import EclContext, EclEnemyState, Vec3
@@ -52,6 +52,7 @@ class EclMachine:
         float_var_ids: frozenset[int] = frozenset(),
         pos_var_ids: frozenset[int] = frozenset(),
         ex_noop_idx: int = 3,
+        extra_handlers: dict[type[EclInstr], Handler] | None = None,
     ) -> None:
         self.file = ecl_file
         self.host = host
@@ -61,6 +62,10 @@ class EclMachine:
         self.float_var_ids = float_var_ids
         self.pos_var_ids = pos_var_ids
         self.ex_noop_idx = ex_noop_idx
+        # 共享指令的 handler 表 + 作品专属指令的注入绑定(games 侧组装)
+        self.handlers: dict[type[EclInstr], Handler] = (
+            HANDLERS if extra_handlers is None else {**HANDLERS, **extra_handlers}
+        )
         self.framerate_multiplier = 1.0  # g_Supervisor.effectiveFramerateMultiplier
         self.current = EclContext()
         self.stack: list[EclContext] = []
@@ -291,7 +296,7 @@ class EclMachine:
                     if self.host.skip_instr(self, instr):
                         ctx.pc += 1
                     else:
-                        r = HANDLERS[type(instr)](self, instr)
+                        r = self.handlers[type(instr)](self, instr)
                         if r is Step.HALT:
                             return False
                         if r is Step.RESTART:

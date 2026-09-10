@@ -15,13 +15,12 @@ from .state import (
     VarInterp,
     Vec3,
 )
-from .timeline import TL_HANDLERS, TimelineRunner, TlHandler
+from .timeline import TimelineRunner, TlHandler
 
 __all__ = [
     "HANDLERS",
     "PLAYFIELD_H",
     "PLAYFIELD_W",
-    "TL_HANDLERS",
     "EclContext",
     "EclEnemyState",
     "EclHost",

@@ -1,37 +1,35 @@
-"""ECL opcode 表: v800(0x800 版本头格式)。
+"""th08 ECL 指令集: v800 opcode 表 + 符卡定制编解码 + InstrSet 装配。
 
 编号/布局出处 th08 EclRunLow.inl:223-929 / EclRunHigh.inl:163-972
 (转引 scratch_dbg/investigation/th08-ref-facts.md:21 与旧实现
-games/th08/ecl_vm.py 的逐条出处注释)。
+games/th08/ecl_vm.py 的逐条出处注释)。parse_ecl 薄包装把版本布局(0x800)/
+指令集/时间轴解码器一并注入。
 """
 
 from __future__ import annotations
 
-from .boss import (
-    AdvanceClock,
-    BeginSpellcardV800,
+from typing import Any
+
+from ...schemas.ecl import (
+    EclFile,
+    EclInstr,
+    InstrSet,
+    build_instr_set,
+)
+from ...schemas.ecl import parse_ecl as _parse_ecl
+from ...schemas.ecl.boss import (
     EndSpellcard,
     FreezeEclDuringBomb,
-    HideClock,
     RunExIns,
-    SetBonusUpdatesDisabled,
     SetBoss,
     SetBossHealth,
     SetExIns,
-    SetLastSpellFlags,
     SetNumBossLifeMarkers,
-    SetSpellcardEffectTracking,
-    SetStageScriptLabel,
-    StartStageBackgroundSequence,
-    SuppressTimelineSpawns,
 )
-from .bullets import (
+from ...schemas.ecl.bullets import (
     AddLaserAngle,
     AimLaserAtPlayer,
-    ClearBulletsForTransition,
     ClearLasers,
-    DeferBulletPattern,
-    DisableDeferBulletPattern,
     InitBulletCmd,
     RemoveAllBullets,
     RemoveBulletsRadius,
@@ -45,20 +43,14 @@ from .bullets import (
     SetLaserStartLen,
     SetShootInterval,
     SetShootIntervalRand,
-    SetShootOffsetV800,
     SpawnPrevBulletPattern,
     StopLaser,
-    TestLaserInUse,
 )
-from .control import (
+from ...schemas.ecl.control import (
     AddTime,
-    CallSubOnBoss,
     DecJump,
     Jump,
     Nop,
-    RunPendingSub,
-    SetBossPendingSub,
-    SetChildContext,
     SetInterrupt,
     SetNoStackRet,
     SetWaitTimer,
@@ -66,61 +58,43 @@ from .control import (
     SubCall,
     SubRet,
 )
-from .enemy import (
+from ...schemas.ecl.decode import (
+    _decode_text,
+    _encode_text,
+    _i16,
+    _i32,
+    _u16,
+)
+from ...schemas.ecl.enemy import (
     BindTimerCallbackToDeath,
-    ClearEnemyFlags,
-    EnableEnemyFlags,
     PlaySound,
     RemoveAllEnemies,
     SetAnm,
     SetDeathAnm,
-    SetDeathCallbackSubV800,
     SetDeathType,
-    SetDrawGroup,
-    SetEnemyFlags,
-    SetEnemyManagerValue,
-    SetExtraVmFixedOffset,
-    SetFormEffect,
-    SetGrazeSizeV800,
-    SetHitboxSizeV800,
     SetInvincibilityTimer,
     SetIsSurvivalSpellcard,
-    SetItemDrop,
-    SetItemDropCounts,
     SetLife,
     SetLifeCallback,
-    SetMoveAnmSeq,
-    SetMoveAnmV800,
-    SetNoDamageDuringStop,
-    SetPhaseStartLife,
     SetPrimaryVmInterrupt,
     SetPrimaryVmRotZ,
-    SetSpecialAnm,
-    SetSpecialInteraction,
     SetSubAnm,
     SetTimer,
-    SetTimerCallback,
     SetTrail,
     SetVmAutoRotate,
-    SetVmInterruptV800,
-    SpawnAlignmentEffect,
     SpawnEffect,
     SpawnEnemyAbs,
     SpawnEnemyRel,
-    SpawnFamiliar,
-    SpawnFamiliarInherit,
-    SpawnFamiliarRel,
     SpawnItem,
     SpawnItems,
     SpawnMovingParticles,
     SpawnParticles,
     SpawnPointItems,
 )
-from .mathops import (
+from ...schemas.ecl.mathops import (
     Atan2,
     Cos,
     Dec,
-    Dist,
     GetBossFloat,
     GetBossInt,
     Inc,
@@ -133,40 +107,149 @@ from .mathops import (
     SetFloat,
     SetInt,
     Sin,
-    VecFromAngleMag,
     VecFromAngleMagRaw,
 )
-from .movement import (
+from ...schemas.ecl.movement import (
     DisableMovementBounds,
     MoveAtPlayer,
+    MoveDirTime,
+    SetAngularVel,
+    SetMoveAccel,
+    SetMovementBounds,
+)
+from ...schemas.ecl.spec import (
+    _A,
+    _CONDS,
+    _FLOAT_ARITH,
+    _INT_ARITH,
+    _bullet,
+    _cond,
+    _Entry,
+    _spawn_enemy,
+)
+from ...schemas.exceptions import ParseError
+from .ecl_instrs import (
+    AddAssign,
+    AddAssignFloat,
+    AdvanceClock,
+    BeginSpellcardV800,
+    CallSubOnBoss,
+    ClearBulletsForTransition,
+    ClearEnemyFlags,
+    DeferBulletPattern,
+    DisableDeferBulletPattern,
+    Dist,
+    DivAssign,
+    DivAssignFloat,
+    EnableEnemyFlags,
+    HideClock,
+    ModAssign,
+    ModAssignFloat,
     MoveAtPlayerTime,
     MoveBoundaryAware,
-    MoveDirTime,
     MoveOrbitAroundSelf,
     MoveOrbitV800,
     MovePosTimeV800,
     MoveRandomBiased,
-    SetAngularVel,
+    MulAssign,
+    MulAssignFloat,
+    RunPendingSub,
+    SetBonusUpdatesDisabled,
+    SetBossPendingSub,
+    SetChildContext,
+    SetDeathCallbackSubV800,
+    SetDrawGroup,
+    SetEnemyFlags,
+    SetEnemyManagerValue,
+    SetExtraVmFixedOffset,
+    SetFormEffect,
+    SetGrazeSizeV800,
+    SetHitboxSizeV800,
+    SetItemDrop,
+    SetItemDropCounts,
+    SetLastSpellFlags,
     SetMinPlayerDistance,
-    SetMoveAccel,
-    SetMovementBounds,
+    SetMoveAnmSeq,
+    SetMoveAnmV800,
     SetMovePolar,
+    SetNoDamageDuringStop,
     SetOrbitVels,
+    SetPhaseStartLife,
     SetPosV800,
+    SetShootOffsetV800,
+    SetSpecialAnm,
+    SetSpecialInteraction,
+    SetSpellcardEffectTracking,
+    SetStageScriptLabel,
+    SetTimerCallback,
+    SetVmInterruptV800,
+    SpawnAlignmentEffect,
+    SpawnFamiliar,
+    SpawnFamiliarInherit,
+    SpawnFamiliarRel,
+    SpawnLaserPatternV800,
+    StartStageBackgroundSequence,
+    SubAssign,
+    SubAssignFloat,
+    SuppressTimelineSpawns,
+    TestLaserInUse,
+    VecFromAngleMag,
 )
-from .spec import (
-    _A,
-    _CONDS,
-    _FLOAT_ARITH,
-    _FLOAT_ASSIGN,
-    _INT_ARITH,
-    _INT_ASSIGN,
-    _bullet,
-    _cond,
-    _Entry,
-    _familiar,
-    _laser_v800,
-    _spawn_enemy,
+from .ecl_timeline import decode_timeline
+
+
+def _laser_v800(aimed: bool) -> _Entry:
+    """激光表项(width/计时可变参)。"""
+    return _Entry(
+        SpawnLaserPatternV800,
+        (
+            _A("sprite", 0, "hu0"),
+            _A("sprite_offset", 0, "h1m", 1),
+            _A("angle", 1, "float", 2),
+            _A("speed", 2, "float", 3),
+            _A("start_offset", 3, "float", 4),
+            _A("end_offset", 4, "float", 5),
+            _A("start_length", 5, "float", 6),
+            _A("width", 6, "float", 7),
+            _A("start_time", 7, "int", 8),
+            _A("duration", 8, "int", 9),
+            _A("despawn_duration", 9, "int", 10),
+            _A("hitbox_start_time", 10, "ri"),
+            _A("hitbox_end_delay", 11, "ri"),
+            _A("flags", 12, "ri"),
+        ),
+        {"aimed": aimed},
+    )
+
+
+def _familiar(cls: type[EclInstr]) -> _Entry:
+    """使魔生成表项(三个 opcode 同布局)。"""
+    return _Entry(
+        cls,
+        (
+            _A("sub_id", 0, "ri"),
+            _A("x", 1, "float"),
+            _A("y", 2, "float"),
+            _A("life", 3, "int"),
+            _A("item_drop", 4, "int"),
+            _A("score", 5, "int"),
+        ),
+    )
+
+
+_INT_ASSIGN: tuple[type[EclInstr], ...] = (
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    ModAssign,
+)
+_FLOAT_ASSIGN: tuple[type[EclInstr], ...] = (
+    AddAssignFloat,
+    SubAssignFloat,
+    MulAssignFloat,
+    DivAssignFloat,
+    ModAssignFloat,
 )
 
 _V800: dict[int, _Entry] = {
@@ -555,3 +638,49 @@ for _i, (_cls, _f) in enumerate(_CONDS):  # 40-51
     _V800[40 + _i] = _cond(_cls, _f)
 for _op in range(96, 105):  # 弹幕生成 9 合一(aim_mode = opcode - 96)
     _V800[_op] = _bullet(_op - 96)
+
+
+# ---- 符卡定制编解码(内嵌 XOR 0xAA 字符串, 字段规格表达不了) ----
+
+
+def _decode_spellcard(
+    base: dict[str, Any], words: tuple[int, ...], mask: int
+) -> EclInstr:
+    # 布局(EclDependencies.cpp:18-36): word0 = face i16|number u16,
+    # bonus i32 @word1, name[48] @word2, owner[48] @word14, comment[64]×2 @word26/42
+    if len(words) != 58:
+        raise ParseError(f"begin_spellcard_v800 参数数不符: {len(words)} != 58")
+    return BeginSpellcardV800(
+        **base,
+        gui_id=_i16(words[0], 0),
+        spellcard_idx=_u16(words[0], 1),
+        bonus=_i32(words[1]),
+        name=_decode_text(words[2:14]),
+        owner=words[14:26],
+        comment1=words[26:42],
+        comment2=words[42:58],
+    )
+
+
+def _encode_spellcard(instr: Any) -> list[int]:
+    words = [(instr.gui_id & 0xFFFF) | ((instr.spellcard_idx & 0xFFFF) << 16)]
+    words.append(instr.bonus & 0xFFFFFFFF)
+    words += _encode_text(instr.name, 48)
+    for raw in (instr.owner, instr.comment1, instr.comment2):
+        words.extend(raw)
+    return words
+
+
+#: th08 的 ECL 指令集(v800 表 + 符卡定制钩子 + encode 反查表)
+ECL_INSTR_SET: InstrSet = build_instr_set(
+    _V800,
+    custom_decode={BeginSpellcardV800: _decode_spellcard},
+    custom_encode={BeginSpellcardV800: _encode_spellcard},
+)
+
+
+def parse_ecl(data: bytes) -> EclFile:
+    """解析 th08 的 .ecl(v800 布局 + v800 指令集 + v800 时间轴)。"""
+    return _parse_ecl(
+        data, version=0x800, instrs=ECL_INSTR_SET, decode_tl=decode_timeline
+    )

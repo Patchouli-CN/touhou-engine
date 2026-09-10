@@ -1,4 +1,4 @@
-"""ECL 变量运算指令(赋值/随机/算术/三角/插值/boss 变量)。"""
+"""ECL 变量运算指令(赋值/随机/算术/三角/插值/boss 变量), 两作共享部分。"""
 
 from __future__ import annotations
 
@@ -22,36 +22,6 @@ class SetFloat(EclInstr, frozen=True, tag="set_float"):
 
     dest: VarRef | None
     value: FloatOperand
-
-
-class Rand(EclInstr, frozen=True, tag="rand"):
-    """dest = rng 取模 bound(v0 专属)。"""
-
-    dest: VarRef | None
-    bound: IntOperand
-
-
-class RandAdd(EclInstr, frozen=True, tag="rand_add"):
-    """dest = rng 取模 bound + addend(v0 专属)。"""
-
-    dest: VarRef | None
-    bound: IntOperand
-    addend: IntOperand
-
-
-class RandFloat(EclInstr, frozen=True, tag="rand_float"):
-    """dest = rng 单位随机 × scale(v0 专属)。"""
-
-    dest: VarRef | None
-    scale: FloatOperand
-
-
-class RandFloatAdd(EclInstr, frozen=True, tag="rand_float_add"):
-    """dest = rng 单位随机 × scale + addend(v0 专属)。"""
-
-    dest: VarRef | None
-    scale: FloatOperand
-    addend: FloatOperand
 
 
 class RandSign(EclInstr, frozen=True, tag="rand_sign"):
@@ -148,76 +118,6 @@ class ModFloat(EclInstr, frozen=True, tag="mod_float"):
     b: FloatOperand
 
 
-class AddAssign(EclInstr, frozen=True, tag="add_assign"):
-    """dest += value(int, v800 专属)。"""
-
-    dest: VarRef | None
-    value: IntOperand
-
-
-class SubAssign(EclInstr, frozen=True, tag="sub_assign"):
-    """dest -= value(int, v800 专属)。"""
-
-    dest: VarRef | None
-    value: IntOperand
-
-
-class MulAssign(EclInstr, frozen=True, tag="mul_assign"):
-    """dest *= value(int, v800 专属)。"""
-
-    dest: VarRef | None
-    value: IntOperand
-
-
-class DivAssign(EclInstr, frozen=True, tag="div_assign"):
-    """dest /= value(int, v800 专属)。"""
-
-    dest: VarRef | None
-    value: IntOperand
-
-
-class ModAssign(EclInstr, frozen=True, tag="mod_assign"):
-    """dest %%= value(int, v800 专属)。"""
-
-    dest: VarRef | None
-    value: IntOperand
-
-
-class AddAssignFloat(EclInstr, frozen=True, tag="add_assign_float"):
-    """dest += value(float, v800 专属)。"""
-
-    dest: VarRef | None
-    value: FloatOperand
-
-
-class SubAssignFloat(EclInstr, frozen=True, tag="sub_assign_float"):
-    """dest -= value(float, v800 专属)。"""
-
-    dest: VarRef | None
-    value: FloatOperand
-
-
-class MulAssignFloat(EclInstr, frozen=True, tag="mul_assign_float"):
-    """dest *= value(float, v800 专属)。"""
-
-    dest: VarRef | None
-    value: FloatOperand
-
-
-class DivAssignFloat(EclInstr, frozen=True, tag="div_assign_float"):
-    """dest /= value(float, v800 专属)。"""
-
-    dest: VarRef | None
-    value: FloatOperand
-
-
-class ModAssignFloat(EclInstr, frozen=True, tag="mod_assign_float"):
-    """dest = fmod(dest, value)(v800 专属)。"""
-
-    dest: VarRef | None
-    value: FloatOperand
-
-
 class Inc(EclInstr, frozen=True, tag="inc"):
     """dest += 1(dest 非 VarRef 时无效果)。"""
 
@@ -285,51 +185,14 @@ class NormalizeAngle(EclInstr, frozen=True, tag="normalize_angle"):
     value: FloatOperand
 
 
-class VecFromAngleMag(EclInstr, frozen=True, tag="vec_from_angle_mag"):
-    """角度先规范化再分解: dest_x = cos(angle)*mag, dest_y = sin(angle)*mag(v800 专属)。"""
-
-    # EclRunLow.inl:368-373
-    dest_x: VarRef | None
-    dest_y: VarRef | None
-    angle: FloatOperand
-    magnitude: FloatOperand
-
-
 class VecFromAngleMagRaw(EclInstr, frozen=True, tag="vec_from_angle_mag_raw"):
-    """角度不规范化直接分解(字段同 VecFromAngleMag)。"""
+    """角度不规范化直接分解: dest_x = cos(angle)*mag, dest_y = sin(angle)*mag。"""
 
     # v0=151; v800=166(EclRunHigh.inl:868-881)
     dest_x: VarRef | None
     dest_y: VarRef | None
     angle: FloatOperand
     magnitude: FloatOperand
-
-
-class Dist(EclInstr, frozen=True, tag="dist"):
-    """dest = (x1, y1) 到 (x2, y2) 的距离(v800 专属)。"""
-
-    # EclRunLow.inl:375-388
-    dest: VarRef | None
-    x1: FloatOperand
-    y1: FloatOperand
-    x2: FloatOperand
-    y2: FloatOperand
-
-
-class RandFloatRange(EclInstr, frozen=True, tag="rand_float_range"):
-    """dest = rng 单位随机 × (hi - lo) + lo(v0 专属)。"""
-
-    dest: VarRef | None
-    lo: FloatOperand
-    hi: FloatOperand
-
-
-class GetExitAngle(EclInstr, frozen=True, tag="get_exit_angle"):
-    """dest = 朝屏幕外逃的随机角(v0 专属; rest 是真实数据里的残余字)。"""
-
-    # C 只写 dest(EclManager.cpp:1593-1632), 真实数据带 2 个未用字
-    dest: VarRef | None
-    rest: tuple[int, ...] = ()
 
 
 class RandExitAngle(EclInstr, frozen=True, tag="rand_exit_angle"):
