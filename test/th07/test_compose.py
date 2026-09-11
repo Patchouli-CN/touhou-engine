@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from touhou.engine import GameAssembly
+import subprocess
+import sys
+
+from touhou.engine import GameAssembly, SaveSemantics
 from touhou.engine.ecl import EclMachine
 from touhou.games import available_games
 from touhou.games.th07 import compose
+from touhou.games.th07.app import Th07App
 from touhou.games.th07.compose import DATA_PATH
 from touhou.games.th07.ecl_handlers import ECL_EXTRA_HANDLERS
 from touhou.games.th07.ecl_host import Th07EclHost
@@ -23,11 +27,54 @@ def test_compose_produces_valid_assembly() -> None:
     assert isinstance(asm, GameAssembly)
     assert asm.name == "th07"
     assert asm.world is Th07World
+    assert asm.save == SaveSemantics(score_file="score.dat")
     assert asm.scripts.ecl_machine is EclMachine
     assert asm.scripts.ecl_host is Th07EclHost
     assert asm.scripts.ecl_instr_set is ECL_INSTR_SET
     assert asm.scripts.ecl_extra_handlers is ECL_EXTRA_HANDLERS
     assert asm.scripts.ecl_tl_handlers is TL_HANDLERS
+
+
+def test_app_decorator_registers_th07_window_app() -> None:
+    """窗口 App 走装饰器登记: 装配取到 Th07App 类。"""
+    assert compose().app is Th07App
+
+
+#: 探针前导: 作品发现 + 注册表(不动渲染层)
+_PROBE_PRELUDE = (
+    "import sys\nimport touhou.games.th07\nfrom touhou.engine import TouhouRegistry\n"
+)
+
+
+def _run_probe(body: str) -> str:
+    """在干净解释器里跑探针, 返回末行 stdout(pygame 会往 stdout 打横幅)。"""
+    out = subprocess.run(
+        [sys.executable, "-c", _PROBE_PRELUDE + body],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return out.stdout.strip().splitlines()[-1]
+
+
+def test_headless_assembly_does_not_pull_pygame() -> None:
+    """作品发现 + 组装不碰渲染层: headless 路径下 pygame 不进 sys.modules。"""
+    assert (
+        _run_probe(
+            "TouhouRegistry.create_game('th07')\nprint('pygame' in sys.modules)\n"
+        )
+        == "False"
+    )
+
+
+def test_window_shell_pulls_view_layer_on_use() -> None:
+    """薄壳在真取用时才拉 view 层(那时 pygame 才到位)。"""
+    body = (
+        "from touhou.games.th07.app import _view\n"
+        "_view()\n"
+        "print('pygame' in sys.modules)\n"
+    )
+    assert _run_probe(body) == "True"
 
 
 def test_rosters_and_paths() -> None:

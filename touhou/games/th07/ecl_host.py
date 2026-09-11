@@ -21,6 +21,7 @@ from ...engine.enemies import Enemy, EnemyField, EnemySpawned
 from ...engine.items import ItemField
 from ...engine.lasers import Laser, LaserField, LaserState
 from ...engine.msg import MsgExecutor
+from ...engine.registry import TouhouRegistry
 from ...engine.rng import Rng
 from ...schemas.ecl import (
     AddLaserAngle,
@@ -148,6 +149,7 @@ def _add3(a: Vec3, b: Vec3) -> Vec3:
     return Vec3(a.x + b.x, a.y + b.y, a.z + b.z)
 
 
+@TouhouRegistry.ecl_host("th07")
 class Th07EclHost(EclHost):
     """th07 的 ECL 宿主实现: 一关一份(换关随 ECL 文件重建)。"""
 

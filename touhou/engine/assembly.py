@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
 import msgspec
 
 from ..schemas.ecl.decode import InstrSet
@@ -61,8 +63,31 @@ class SaveSemantics(msgspec.Struct, frozen=True):
     score_file: str = "score.dat"
 
 
+class WindowApp(Protocol):
+    """窗口 App 契约: 完整流程与直进一局两个入口(实现是作品的 view 层模块)。"""
+
+    def run_app(
+        self,
+        assembly: GameAssembly,
+        *,
+        seed: int | None = None,
+        scale: int | None = None,
+    ) -> None: ...
+
+    def run_game(
+        self,
+        assembly: GameAssembly,
+        *,
+        character: int = 0,
+        difficulty: int = 1,
+        stage_no: int = 1,
+        seed: int | None = None,
+        scale: int | None = None,
+    ) -> object: ...
+
+
 class GameAssembly(msgspec.Struct, frozen=True):
-    """一部作品的可运行装配: compose() 的产出, 全维度数据化、无注册表。"""
+    """一部作品的可运行装配: TouhouRegistry.create_game 的产出, 全维度数据化。"""
 
     name: str  # 作品名
     title: str  # 作品标题
@@ -71,7 +96,7 @@ class GameAssembly(msgspec.Struct, frozen=True):
     scripts: ScriptSet  # 指令集与执行器宿主
     save: SaveSemantics = msgspec.field(default_factory=SaveSemantics)
     world: type[World] | None = None  # 对局实现类(None = 对局未接入, 只能跑脚本层)
-    app: type | None = None  # 窗口 App 类(None = 只能 headless)
+    app: type[WindowApp] | None = None  # 窗口 App 类(None = 只能 headless)
     mods: type | None = None  # mod 能力提供者类
 
 

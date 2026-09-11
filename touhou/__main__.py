@@ -1,19 +1,20 @@
 """命令行入口: ``python -m touhou --game <作品名>`` 开窗口进标题画面。
 
-作品分发走 importlib 动态 import(包根不出现作品名, 分层红线);
-约定作品包提供 ``games/<名>/compose.py: compose`` 与 ``games/<名>/view/app.py``
-的 ``run_app``(完整流程)/``run_game``(直进一局, --direct 用)。
+作品发现走 ``touhou/games`` 的显式清单(import 即触发向 TouhouRegistry 登记);
+装配体与窗口层一律从注册表取, 入口不认任何作品目录布局。
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib
+
+from . import games as games  # 作品发现清单: import 即触发登记
+from .engine.registry import TouhouRegistry
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="touhou")
-    parser.add_argument("--game", required=True, help="作品目录名(如 games/ 下的包名)")
+    parser.add_argument("--game", required=True, help="作品名(如 th07)")
     parser.add_argument(
         "--direct", action="store_true", help="跳过标题直进一局(调试入口)"
     )
@@ -25,13 +26,14 @@ def main() -> None:
         "--scale", type=int, default=None, help="窗口缩放倍率(缺省用后端的默认)"
     )
     args = parser.parse_args()
-    compose = importlib.import_module(
-        f".games.{args.game}.compose", __package__
-    ).compose
-    app = importlib.import_module(f".games.{args.game}.view.app", __package__)
+    assembly = TouhouRegistry.create_game(args.game)
+    app_cls = assembly.app
+    if app_cls is None:
+        raise SystemExit(f"作品 {args.game!r} 未登记窗口层, 只能 headless 运行")
+    app = app_cls()
     if args.direct:
         app.run_game(
-            compose(),
+            assembly,
             character=args.character,
             difficulty=args.difficulty,
             stage_no=args.stage,
@@ -39,7 +41,7 @@ def main() -> None:
             scale=args.scale,
         )
     else:
-        app.run_app(compose(), seed=args.seed, scale=args.scale)
+        app.run_app(assembly, seed=args.seed, scale=args.scale)
 
 
 if __name__ == "__main__":

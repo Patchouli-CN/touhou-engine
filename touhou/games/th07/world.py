@@ -47,6 +47,7 @@ from ...engine.ecl import EclMachine, TimelineRunner
 from ...engine.enemies import Enemy
 from ...engine.events import Event, EventHandler
 from ...engine.items import STATE_ATTRACT
+from ...engine.registry import TouhouRegistry
 from ...engine.rng import Rng
 from ...engine.score_store import ScoreStore
 from ...schemas.archive import Archive, load_entry, open_archive
@@ -83,6 +84,7 @@ from .snapshot import Th07SnapshotSystem
 _DEFAULT_SEED = 0x5EED
 
 
+@TouhouRegistry.world("th07")
 class Th07World(World):
     """一面 th07 对局的全部状态: engine field 们 + 作品计数 + ECL 接线。"""
 

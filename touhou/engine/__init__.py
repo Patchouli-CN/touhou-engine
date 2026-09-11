@@ -17,6 +17,7 @@ from .assembly import (
     ResourcePaths,
     SaveSemantics,
     ScriptSet,
+    WindowApp,
     check_assembly,
 )
 from .bomb import (
@@ -150,6 +151,7 @@ from .player import (
     PlayerState,
     PlayerSystem,
 )
+from .registry import TouhouRegistry
 from .render import RenderBackend
 from .rng import Rng
 from .score_store import ScoreStore, default_score, make_highscore_record
@@ -314,6 +316,8 @@ __all__ = [
     "System",
     "Targeting",
     "TextDraw",
+    "TouhouRegistry",
+    "WindowApp",
     "World",
     "build_bank",
     "build_script",
