@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import msgspec
 
 from ...engine import (
@@ -112,15 +114,15 @@ class Th07World(World):
     )
     boss: BossField | None = None
     boss_enemy: Enemy | None = None
-    # ---- ECL 接线(compose_world 装载; None = 无 ECL 数据) ----
+    # ---- ECL 接线(_build_world 装载; None = 无 ECL 数据) ----
     host: Th07EclHost | None = None
     timelines: list[TimelineRunner] = msgspec.field(default_factory=list)
-    # ---- MSG 接线(compose_world 装载; None = 无 msg 数据, 不停轴) ----
+    # ---- MSG 接线(_build_world 装载; None = 无 msg 数据, 不停轴) ----
     msg_vm: MsgExecutor | None = None
     stage_results: StageResultPanel | None = None  # 结算面板数据(view 消费)
     pending_next_level: bool = False  # NEXT_LEVEL 登记, 次帧帧首换关
     msg_active: bool = False  # 帧首对话门控快照(HasCurrentMsgIdx)
-    # ---- 换关资源(compose_world 注入; advance_stage 装新关脚本用) ----
+    # ---- 换关资源(_build_world 注入; advance_stage 装新关脚本用) ----
     archive: Archive | None = None
     resources: ResourcePaths | None = None
     # ---- 驱动 ----
@@ -128,7 +130,7 @@ class Th07World(World):
     rng: Rng = msgspec.field(default_factory=Rng)
     ctx: FrameContext | None = None  # 本帧上下文(tick 写入; 宿主/结算回本帧事件口)
     subscribers: list[EventHandler] = msgspec.field(default_factory=list)
-    # ---- 作品参数(.sht 抄录, compose_world 注入) ----
+    # ---- 作品参数(.sht 抄录, _build_world 注入) ----
     initial_bombs: float = 2.0
     cherry_penalty_multiplier: float = 0.0
     # ---- 账本 ----
@@ -301,8 +303,13 @@ class Th07World(World):
         if self.boss is not None and self.boss_enemy is host.machine_enemy.get(id(m)):
             self.boss.end_spellcard(self.ctx)
 
+    @classmethod
+    def compose(cls, assembly: GameAssembly, **params: Any) -> Th07World:
+        """按开局参数造出这一局的世界(装配契约, 注册表按此契约调用)。"""
+        return _build_world(cls, assembly, **params)
 
-# ---- 管线 system(作品侧槽位件; engine 件落位见 compose_world) ----
+
+# ---- 管线 system(作品侧槽位件; engine 件落位见 _build_world) ----
 
 
 class Th07SyncSystem(System[Th07World]):
@@ -614,7 +621,8 @@ class Th07BorderClearSystem(System[Th07World]):
 # ---- 组合根 ----
 
 
-def compose_world(
+def _build_world(
+    cls: type[Th07World],
     assembly: GameAssembly,
     *,
     character: int = 0,
@@ -768,7 +776,7 @@ def compose_world(
         TimelineRunner(tl, host, ecl_rng, TL_HANDLERS) for tl in ecl_file.timelines
     ]
 
-    world = Th07World(
+    world = cls(
         character=character,
         difficulty=difficulty,
         stage_no=stage_no,
@@ -840,3 +848,11 @@ def compose_world(
     p.add(Slot.OUTPUT, Th07SnapshotSystem(anm_version=assembly.scripts.anm_version))
     world.pipeline = p
     return world
+
+
+def compose_world(assembly: GameAssembly, **params: Any) -> Th07World:
+    """兼容薄入口: 世界的装配契约在 world 类上, 走注册表登记的那个类。"""
+    world_cls = assembly.world
+    if world_cls is None:
+        raise ValueError(f"作品 {assembly.name!r} 未登记世界, 无法开局")
+    return cast(Th07World, world_cls.compose(assembly, **params))

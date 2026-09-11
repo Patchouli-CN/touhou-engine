@@ -4,18 +4,26 @@ from __future__ import annotations
 
 import enum
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import msgspec
 
 from .context import FrameContext
 from .snapshot import SceneSnapshot
 
+if TYPE_CHECKING:
+    from .assembly import GameAssembly
+
 
 class World(msgspec.Struct):
     """模拟状态容器基类, 作品子类加自己的字段。"""
 
     frame: int = 0
+
+    @classmethod
+    def compose(cls, assembly: GameAssembly, **params: Any) -> World:
+        """按开局参数造出这一局的世界; 作品覆写, 装配入口经注册表按此契约调用。"""
+        raise NotImplementedError(f"{cls.__name__} 未实现装配契约 compose")
 
 
 W = TypeVar("W", bound=World)

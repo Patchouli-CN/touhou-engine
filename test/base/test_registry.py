@@ -7,6 +7,7 @@ from collections.abc import Iterator
 import pytest
 
 from touhou.engine import (
+    GameAssembly,
     GameData,
     ResourcePaths,
     SaveSemantics,
@@ -126,6 +127,28 @@ def test_duplicate_world_rejected() -> None:
         @TouhouRegistry.world(_GAME)
         class _SecondWorld(World):
             """后登记的假世界, 应被拒。"""
+
+
+def test_world_compose_contract_called_through_registry() -> None:
+    """装配入口按契约调用注册表登记的 world 类, 开局参数经此传入。"""
+    calls: list[dict] = []
+
+    @TouhouRegistry.world(_GAME)
+    class _ComposableWorld(World):
+        """登记测试用的可装配假世界。"""
+
+        @classmethod
+        def compose(cls, assembly: GameAssembly, **params: object) -> World:
+            """记录开局参数并造出这一局。"""
+            calls.append(params)
+            return cls(frame=7)
+
+    _register()
+    assembly = TouhouRegistry.create_game(_GAME)
+    assert assembly.world is _ComposableWorld
+    built = assembly.world.compose(assembly, character=3)
+    assert built.frame == 7
+    assert calls == [{"character": 3}]
 
 
 def test_app_decorator_binds_window_app() -> None:

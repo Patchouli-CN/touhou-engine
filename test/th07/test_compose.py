@@ -5,7 +5,10 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from touhou.engine import GameAssembly, SaveSemantics
+import msgspec
+import pytest
+
+from touhou.engine import GameAssembly, SaveSemantics, World
 from touhou.engine.ecl import EclMachine
 from touhou.games import available_games
 from touhou.games.th07 import compose
@@ -15,7 +18,7 @@ from touhou.games.th07.ecl_handlers import ECL_EXTRA_HANDLERS
 from touhou.games.th07.ecl_host import Th07EclHost
 from touhou.games.th07.ecl_table import ECL_INSTR_SET
 from touhou.games.th07.ecl_timeline import TL_HANDLERS
-from touhou.games.th07.world import Th07World
+from touhou.games.th07.world import Th07World, compose_world
 from touhou.schemas.archive import open_archive
 
 from .conftest import needs_data
@@ -38,6 +41,20 @@ def test_compose_produces_valid_assembly() -> None:
 def test_app_decorator_registers_th07_window_app() -> None:
     """窗口 App 走装饰器登记: 装配取到 Th07App 类。"""
     assert compose().app is Th07App
+
+
+def test_world_owns_assembly_contract() -> None:
+    """装配契约在 world 类上: compose_world 薄入口经注册表登记的类开局。"""
+    # 覆写了基类契约(不是继承的 NotImplementedError 版本)
+    assert Th07World.compose.__func__ is not World.compose.__func__
+    assert compose().world is Th07World
+
+
+def test_compose_world_requires_registered_world() -> None:
+    """未登记世界的装配开不了局(装配入口不再绕过注册表)。"""
+    bare = msgspec.structs.replace(compose(), world=None)
+    with pytest.raises(ValueError, match="未登记世界"):
+        compose_world(bare, character=0)
 
 
 #: 探针前导: 作品发现 + 注册表(不动渲染层)
