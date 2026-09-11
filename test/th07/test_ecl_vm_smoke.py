@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from touhou.engine import open_archive
 from touhou.engine.ecl import EclHost, EclMachine, TimelineRunner
 from touhou.engine.ecl.state import EnemySpawn
 from touhou.engine.rng import Rng
 from touhou.games.th07.ecl_handlers import ECL_EXTRA_HANDLERS
 from touhou.games.th07.ecl_table import parse_ecl
 from touhou.games.th07.ecl_timeline import TL_HANDLERS
-from touhou.schemas.archive import load_entry, open_archive
+from touhou.schemas.archive import load_entry
 from touhou.schemas.ecl import EclFile, EclInstr
 
 from .conftest import DATA, needs_data

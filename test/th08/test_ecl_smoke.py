@@ -7,8 +7,12 @@ from __future__ import annotations
 
 import msgspec
 
+from touhou.engine import open_archive
 from touhou.games.th08.ecl_table import ECL_INSTR_SET, parse_ecl
-from touhou.schemas.archive import load_entry, open_archive, try_decrypt_signed
+from touhou.schemas.archive import (
+    load_entry,
+    try_decrypt_signed,
+)
 from touhou.schemas.ecl import (
     EclInstr,
     SubEnd,

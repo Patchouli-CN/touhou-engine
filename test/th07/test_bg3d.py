@@ -247,8 +247,8 @@ class _W:
 @needs_data
 def test_stage1_bg_content() -> None:
     """一面背景: 装配成功且产出非纯色帧(雾中道路场景)。"""
+    from touhou.engine import open_archive
     from touhou.games.th07.view.bg3d import StageBg
-    from touhou.schemas.archive import open_archive
 
     bg = StageBg(open_archive(str(DATA)), threaded=False)
     w = _W()
@@ -265,8 +265,8 @@ def test_stage1_bg_content() -> None:
 @needs_data
 def test_stage2_bg_content() -> None:
     """二面背景: 装配成功且产出非纯色帧(樱并木场景)。"""
+    from touhou.engine import open_archive
     from touhou.games.th07.view.bg3d import StageBg
-    from touhou.schemas.archive import open_archive
 
     bg = StageBg(open_archive(str(DATA)), threaded=False)
     w = _W()
@@ -282,8 +282,8 @@ def test_stage2_bg_content() -> None:
 @needs_data
 def test_stage6_wait_label_jump() -> None:
     """六面: ECL 等待值驱动 std 脚本跳 WaitLabel(真数据 label 1 → 2000)。"""
+    from touhou.engine import open_archive
     from touhou.games.th07.view.bg3d import StageBg
-    from touhou.schemas.archive import open_archive
 
     bg = StageBg(open_archive(str(DATA)), threaded=False)
     w = _W()
@@ -333,8 +333,8 @@ def test_threaded_bg_produces() -> None:
     """Worker 模式: 投递推进任务后拿到完成帧, close 干净。"""
     import time
 
+    from touhou.engine import open_archive
     from touhou.games.th07.view.bg3d import StageBg
-    from touhou.schemas.archive import open_archive
 
     bg = StageBg(open_archive(str(DATA)), threaded=True)
     w = _W()

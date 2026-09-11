@@ -414,11 +414,12 @@ def test_game_scene_bgm_chain() -> None:
 @needs_data
 def test_game_scene_ending_music() -> None:
     """6 面通关: 结局点起结局曲(Ending.cpp:300-301)再走总结算。"""
+    from touhou.engine import open_archive
     from touhou.games.th07.compose import compose
     from touhou.games.th07.msg import apply_next_level
     from touhou.games.th07.view.game_scene import GameScene
     from touhou.games.th07.world import compose_world
-    from touhou.schemas.archive import load_entry, open_archive
+    from touhou.schemas.archive import load_entry
     from touhou.schemas.ending import parse_end
 
     rec = _Rec()
@@ -438,7 +439,8 @@ def test_game_scene_ending_music() -> None:
 @needs_data
 def test_real_thbgm_tracks() -> None:
     """真 thbgm.dat: 头校验/fmt 20 曲/取轨字节非空/包 RIFF 格式对头。"""
-    from touhou.schemas.archive import load_entry, open_archive
+    from touhou.engine import open_archive
+    from touhou.schemas.archive import load_entry
     from touhou.schemas.thbgm import THBGM_HEADER_SIZE, check_thbgm_header
 
     bgm = DATA.with_name("thbgm.dat")
@@ -468,7 +470,8 @@ def test_real_thbgm_tracks() -> None:
 @needs_data
 def test_real_stage_bgm_paths() -> None:
     """真 std: 面曲/boss 曲槽位与反编译装载口径一致(GameManager.cpp:778-779)。"""
-    from touhou.schemas.archive import load_entry, open_archive
+    from touhou.engine import open_archive
+    from touhou.schemas.archive import load_entry
     from touhou.schemas.stage import parse_std
 
     arc = open_archive(DATA, format_name="pbg4")

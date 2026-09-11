@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 
-from touhou.engine import Button, FrameContext, InputFrame, Rng, ShotField
+from touhou.engine import Button, FrameContext, InputFrame, Rng, ShotField, open_archive
 from touhou.engine.enemies import EnemyDamaged
 from touhou.engine.events import Event
 from touhou.games.th07.compose import compose
@@ -28,7 +28,7 @@ from touhou.games.th07.shot_cbs import (
     Th07ShotHooks,
 )
 from touhou.games.th07.world import compose_world
-from touhou.schemas.archive import load_entry, open_archive
+from touhou.schemas.archive import load_entry
 from touhou.schemas.shot_data import ShotData, ShotEntry, ShotLevel, parse_sht
 from touhou.utils.math import Vec2
 

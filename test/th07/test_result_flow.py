@@ -7,7 +7,7 @@ AsciiManager.cpp RetryMenu。
 
 from __future__ import annotations
 
-from touhou.engine import Button, FrameContext, InputFrame
+from touhou.engine import Button, FrameContext, InputFrame, open_archive
 from touhou.engine.score_store import ScoreStore
 from touhou.games.th07.compose import compose
 from touhou.games.th07.msg import apply_next_level, apply_stage_results
@@ -19,7 +19,7 @@ from touhou.games.th07.result import (
     finish_ending,
 )
 from touhou.games.th07.world import Th07World, compose_world
-from touhou.schemas.archive import load_entry, open_archive
+from touhou.schemas.archive import load_entry
 from touhou.schemas.ending import parse_end
 
 from .conftest import DATA, needs_data

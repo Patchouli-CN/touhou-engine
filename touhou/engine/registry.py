@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeVar
 
+from ..schemas.archive import ArchiveFormat
 from .assembly import (
     GameAssembly,
     GameData,
@@ -40,6 +41,8 @@ class TouhouRegistry:
     _registry_save: dict[str, SaveSemantics] = {}
     #: 渲染后端按"后端名"登记(与作品名无关的正交维度), 值是构造器
     _registry_renderer: dict[str, Callable[..., RenderBackend]] = {}
+    #: 容器格式按"格式名"登记(schemas 出规格, 这里只做绑定)
+    _registry_archive: dict[str, ArchiveFormat] = {}
 
     @classmethod
     def _claim(cls, registry: dict, game: str, kind: str) -> None:
@@ -88,6 +91,29 @@ class TouhouRegistry:
                 f"未登记的渲染后端: {name!r}"
                 f"(已登记: {', '.join(sorted(cls._registry_renderer))})"
             ) from None
+
+    @classmethod
+    def archive(cls, spec: ArchiveFormat) -> ArchiveFormat:
+        """登记一种容器格式(schemas 出规格, 框架层做绑定); 重名 fail fast。"""
+        cls._claim(cls._registry_archive, spec.name, "archive")
+        cls._registry_archive[spec.name] = spec
+        return spec
+
+    @classmethod
+    def archive_format(cls, name: str) -> ArchiveFormat:
+        """按格式名取规格; 未登记抛 KeyError 带已登记名单。"""
+        try:
+            return cls._registry_archive[name]
+        except KeyError:
+            raise KeyError(
+                f"未登记的容器格式: {name!r}"
+                f"(已登记: {', '.join(sorted(cls._registry_archive))})"
+            ) from None
+
+    @classmethod
+    def archive_formats(cls) -> tuple[ArchiveFormat, ...]:
+        """全部已登记格式(登记序: 认头按此序试)。"""
+        return tuple(cls._registry_archive.values())
 
     @classmethod
     def register(

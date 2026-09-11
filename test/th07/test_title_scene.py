@@ -266,8 +266,8 @@ def test_description_text_without_data_is_empty() -> None:
 @needs_data
 def test_real_data_title_and_select_layout() -> None:
     """真机: 标题有背景/logo/菜单贴图; 进难度页背景换 select00.jpg。"""
+    from touhou.engine import open_archive
     from touhou.games.th07.compose import DATA_PATH
-    from touhou.schemas.archive import open_archive
 
     archive = open_archive(DATA_PATH, format_name="pbg4")
     scene = TitleScene(archive, ScoreStore(), MenuMemory())

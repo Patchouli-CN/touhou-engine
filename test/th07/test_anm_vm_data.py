@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from touhou.engine import open_archive
 from touhou.engine.anm import AnmBank, AnmMachine, build_bank
 from touhou.engine.rng import Rng
 from touhou.schemas.anm import parse_anm
-from touhou.schemas.archive import load_entry, open_archive
+from touhou.schemas.archive import load_entry
 
 from .conftest import DATA, needs_data
 

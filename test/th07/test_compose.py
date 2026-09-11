@@ -13,6 +13,7 @@ from touhou.engine import (
     SaveSemantics,
     TouhouRegistry,
     World,
+    open_archive,
 )
 from touhou.games import available_games
 from touhou.games.th07 import compose
@@ -21,7 +22,6 @@ from touhou.games.th07.compose import DATA_PATH
 from touhou.games.th07.ecl_host import Th07EclHost
 from touhou.games.th07.view.backend import PygameBackend
 from touhou.games.th07.world import Th07World, compose_world
-from touhou.schemas.archive import open_archive
 
 from .conftest import needs_data
 

@@ -42,6 +42,7 @@ from ...engine import (
     Slot,
     System,
     World,
+    open_archive,
     tick_frame,
 )
 from ...engine.bomb import BOMB_RESPAWN_PENALTY, ClearBox
@@ -52,7 +53,7 @@ from ...engine.items import STATE_ATTRACT
 from ...engine.registry import TouhouRegistry
 from ...engine.rng import Rng
 from ...engine.score_store import ScoreStore
-from ...schemas.archive import Archive, load_entry, open_archive
+from ...schemas.archive import Archive, load_entry
 from ...schemas.ending import EndingFile
 from ...schemas.msg import parse_msg
 from ...schemas.shot_data import parse_sht

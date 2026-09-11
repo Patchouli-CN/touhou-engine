@@ -214,8 +214,8 @@ def test_empty_tracks_still_works() -> None:
 @needs_data
 def test_real_data_tracks_and_layout() -> None:
     """真机: 20 曲全列出(C++ 无解锁过滤), 快照 = music.jpg 底 + 横幅 + 曲名/评论。"""
+    from touhou.engine import open_archive
     from touhou.games.th07.compose import DATA_PATH
-    from touhou.schemas.archive import open_archive
 
     archive = open_archive(DATA_PATH, format_name="pbg4")
     scene = MusicRoomScene(archive, on_exit=lambda: _Marker())

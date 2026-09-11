@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from touhou.schemas.archive import load_entry, open_archive
+from touhou.engine import open_archive
+from touhou.schemas.archive import load_entry
 from touhou.schemas.msg import Dialogue, MsgInstr, parse_msg
 from touhou.schemas.musiccmt import parse_musiccmt
 from touhou.schemas.shot_data import parse_sht

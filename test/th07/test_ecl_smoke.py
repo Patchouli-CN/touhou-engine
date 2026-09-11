@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import msgspec
 
+from touhou.engine import open_archive
 from touhou.games.th07.ecl_table import ECL_INSTR_SET, parse_ecl
-from touhou.schemas.archive import load_entry, open_archive
+from touhou.schemas.archive import load_entry
 from touhou.schemas.ecl import (
     EclInstr,
     SubEnd,

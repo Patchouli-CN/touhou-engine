@@ -6,15 +6,14 @@ import struct
 
 import pytest
 
+from touhou.engine import open_archive, sniff_archive
 from touhou.exceptions import ArchiveFormatError
 from touhou.schemas.archive import (
     load_entry,
     lzss_decompress,
-    open_archive,
     parse_pbg4,
     parse_pbgz,
     raw_entry,
-    sniff_archive,
 )
 from touhou.schemas.archive.pbgz import decrypt
 

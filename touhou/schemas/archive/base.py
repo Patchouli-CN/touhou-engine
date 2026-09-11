@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import msgspec
 
 from .lzss import lzss_decompress
@@ -30,6 +32,17 @@ class Archive(msgspec.Struct):
         # data 是整包字节串, 不进 repr
         src = self.path or "<bytes>"
         return f"<Archive {self.format_name} {src} {len(self.entries)} 条目>"
+
+
+class ArchiveFormat(msgspec.Struct, frozen=True):
+    """容器格式规格: 名字 + 认头 + 解析。
+
+    schemas 只出规格(纯数据 + 纯函数), 登记到注册表归框架层(架构稿 §2.6)。
+    """
+
+    name: str
+    sniff: Callable[[bytes], bool]  # 认头: 看前 64 字节
+    parse: Callable[[bytes, str | None], Archive]  # 解析: 整包字节 + 路径
 
 
 def find_entry(archive: Archive, name: str) -> ArchiveEntry:

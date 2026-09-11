@@ -6,9 +6,10 @@ test_th07_stage_transition.py 的 .end 段。
 
 from __future__ import annotations
 
+from touhou.engine import open_archive
 from touhou.engine.ending import EndingPlayer
 from touhou.games.th07.ending import ending_path, load_ending
-from touhou.schemas.archive import load_entry, open_archive
+from touhou.schemas.archive import load_entry
 from touhou.schemas.ending import Load, parse_end
 
 from .conftest import DATA, needs_data

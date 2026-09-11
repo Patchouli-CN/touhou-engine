@@ -466,8 +466,8 @@ def test_run_app_playerdata_chain(tmp_path) -> None:
 @needs_data
 def test_real_data_layout() -> None:
     """真机: result.jpg 底 + result00.anm 41 台 VM 跑脚本, 榜/符卡页有贴图。"""
+    from touhou.engine import open_archive
     from touhou.games.th07.compose import DATA_PATH
-    from touhou.schemas.archive import open_archive
 
     archive = open_archive(DATA_PATH, format_name="pbg4")
     scene = PlayerDataScene(archive, _store(), on_exit=lambda: _Marker())

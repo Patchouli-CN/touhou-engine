@@ -265,8 +265,8 @@ def test_any_input_resets_idle() -> None:
 @needs_data
 def test_real_data_labels_and_values() -> None:
     """真机: 标签 vms[9..17] 选中亮其余暗; 值指示 vms[18..33] 按 cfg 档位亮。"""
+    from touhou.engine import open_archive
     from touhou.games.th07.compose import DATA_PATH
-    from touhou.schemas.archive import open_archive
 
     archive = open_archive(DATA_PATH, format_name="pbg4")
     scene = _scene(vm_set=MenuVmSet(archive))

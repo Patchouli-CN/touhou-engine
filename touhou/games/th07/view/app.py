@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from ....engine import GameAssembly, RenderBackend, TouhouRegistry
+from ....engine import GameAssembly, RenderBackend, TouhouRegistry, open_archive
 from ....engine.score_store import ScoreStore
-from ....schemas.archive import open_archive
 from ..config import Th07Config, load_config, save_config
 from ..replay import (
     ReplayEntry,

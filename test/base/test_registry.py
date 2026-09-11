@@ -14,6 +14,7 @@ from touhou.engine import (
     TouhouRegistry,
 )
 from touhou.engine.core import World
+from touhou.schemas.archive import Archive, ArchiveFormat
 
 _GAME = "test99"
 
@@ -232,3 +233,42 @@ def test_duplicate_renderer_rejected() -> None:
         @TouhouRegistry.renderer("dup-backend")
         class _SecondBackend:
             """后登记的假渲染后端, 应被拒。"""
+
+
+def _fake_format(name: str) -> ArchiveFormat:
+    """造一个测试用格式规格(认头看 "TEST" 头)。"""
+
+    def _sniff(header: bytes) -> bool:
+        return header[:4] == b"TEST"
+
+    def _parse(data: bytes, path: str | None = None) -> Archive:
+        return Archive(format_name=name, entries=[], data=data, path=path)
+
+    return ArchiveFormat(name=name, sniff=_sniff, parse=_parse)
+
+
+def test_core_archive_formats_registered() -> None:
+    """框架自带核心格式随 engine import 登记, 认头按登记序(pbg4 先于 pbgz)。"""
+    assert [f.name for f in TouhouRegistry.archive_formats()][:2] == ["pbg4", "pbgz"]
+
+
+def test_archive_dimension_registers_specs() -> None:
+    """容器格式是正交维度: 按格式名登记规格并可取回。"""
+    spec = _fake_format("test-fmt")
+    assert TouhouRegistry.archive(spec) is spec
+    assert TouhouRegistry.archive_format("test-fmt") is spec
+    assert spec in TouhouRegistry.archive_formats()
+
+
+def test_unknown_archive_format_lists_registered() -> None:
+    """未登记的格式名报 KeyError 并带已登记名单。"""
+    with pytest.raises(KeyError, match="未登记的容器格式"):
+        TouhouRegistry.archive_format("no-such-fmt")
+
+
+def test_duplicate_archive_rejected() -> None:
+    """容器格式重名登记 fail fast。"""
+    spec = _fake_format("dup-fmt")
+    TouhouRegistry.archive(spec)
+    with pytest.raises(ValueError, match="重名登记被拒"):
+        TouhouRegistry.archive(spec)

@@ -5,7 +5,11 @@ th08 差异点: msg 文本 XOR 0x77 / sht 扩展布局 / thbgm game id 0x800。
 
 from __future__ import annotations
 
-from touhou.schemas.archive import load_entry, open_archive, try_decrypt_signed
+from touhou.engine import open_archive
+from touhou.schemas.archive import (
+    load_entry,
+    try_decrypt_signed,
+)
 from touhou.schemas.msg import Dialogue, MsgInstr, parse_msg
 from touhou.schemas.musiccmt import parse_musiccmt
 from touhou.schemas.shot_data import parse_sht

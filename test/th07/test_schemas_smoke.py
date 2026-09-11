@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from touhou.engine import open_archive
 from touhou.schemas.anm import parse_anm, sprite_image
 from touhou.schemas.anm_script import AnmInstr
-from touhou.schemas.archive import load_entry, open_archive
+from touhou.schemas.archive import load_entry
 
 from .conftest import DATA, needs_data
 

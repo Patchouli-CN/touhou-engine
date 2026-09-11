@@ -11,6 +11,7 @@ from .anm import (
     build_bank,
     build_script,
 )
+from .archive import open_archive, sniff_archive
 from .assembly import (
     GameAssembly,
     GameData,
@@ -323,9 +324,11 @@ __all__ = [
     "default_score",
     "laser_hits_player",
     "make_highscore_record",
+    "open_archive",
     "rank_lerp",
     "rank_lerp_int",
     "settle_damage",
+    "sniff_archive",
     "step_bullet",
     "tick_frame",
 ]
