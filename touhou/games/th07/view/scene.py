@@ -15,8 +15,8 @@ from .music import BgmPlayer
 class Scene(ABC):
     """一个画面: step 吃输入推进状态, snapshot 出本帧要画什么。
 
-    playfield_chrome: True = 后端画游戏区边框/右栏/裁剪(对局画面);
-    菜单画面保持 False 全屏绘制。
+    playfield_chrome: True = 后端把世界 sprite 裁进游戏区 + 震屏偏移(对局画面);
+    边框/右栏面板贴图由快照 HUD 生产(Gui 层 sprite)。菜单画面保持 False 全屏绘制。
     """
 
     playfield_chrome = False

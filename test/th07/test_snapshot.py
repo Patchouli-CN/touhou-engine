@@ -38,20 +38,20 @@ def test_bullet_sprite_key() -> None:
 
 
 def test_item_and_player_fallback_keys() -> None:
-    """无 anm 数据: 道具走语义键, 自机走 player0N 代表帧, HUD 文本在。"""
+    """无 anm 数据: 道具走语义键, 自机走 player0N 代表帧, HUD 贴图键照常产出。"""
     w = Th07World(character=0)
     w.items.items.append(Item(pos=Vec2(50.0, 60.0), kind=1))
     ctx = _produce(w)
     keys = {s.image for s in ctx.draw.sprites}
     assert "item:1" in keys
     assert any(k.startswith("player00.anm:") for k in keys)
-    texts = [t.text for t in ctx.draw.texts]
-    assert "SCORE" in texts and "CHERRY" in texts
+    assert "front.anm:12" in keys  # 边框/面板 tile
+    assert "ascii.anm:142" in keys  # 樱点计量条
 
 
 @needs_data
 def test_stage1_snapshot_contents() -> None:
-    """真机一面 1400 帧: 敌/自机/自机弹贴图键齐, HUD 计数随分数变化。"""
+    """真机一面 1400 帧: 敌/自机/自机弹贴图键齐, HUD 贴图面板 + 分数贴字在。"""
     from touhou.engine.input import Button
     from touhou.games.th07.compose import compose
     from touhou.games.th07.world import compose_world
@@ -69,10 +69,14 @@ def test_stage1_snapshot_contents() -> None:
         s.image.startswith("stg1enm.anm:") and s.image.rsplit(":", 1)[1].isdigit()
         for s in snap.sprites
     )
-    texts = [t.text for t in snap.texts]
-    assert "SCORE" in texts
-    score_row = texts[texts.index("SCORE") + 1]
-    assert score_row.strip("0") != ""  # 击坠入账, 不是全零
+    # HUD: front.anm 边框/标签 + 樱点计量条 + Score 行 ascii 贴字(y=64 行)
+    assert "front.anm" in keys and "ascii.anm" in keys
+    assert any(s.image == "ascii.anm:142" for s in snap.sprites)
+    score_row = [
+        s for s in snap.sprites if s.image.startswith("ascii.anm:") and s.y == 72.0
+    ]
+    assert len(score_row) >= 9  # 8 位分 + 续关尾数
+    assert any(s.image != "ascii.anm:47" for s in score_row)  # 击坠入账, 不是全零
 
 
 @needs_data

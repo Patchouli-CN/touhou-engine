@@ -3,8 +3,9 @@
 窗口 640x480 逻辑像素 × scale; 每帧 = 事件采集 → 快照合成 → flip → 60fps 帧控。
 SE 走 schemas/sound.py 的槽位表(wav 从数据包懒加载, 无声卡/无数据静音降级)。
 z 序约定: z<100 = 游戏区空间(裁剪进 384x448 + 震屏偏移), z>=100 = Gui 层
-(符卡宣言/关卡标题/弹字, 画全窗口不裁剪不振; C++ Gui 绘制前清零 offset,
-Gui.cpp:159-160)。震屏 = register_shakes 登记 + 每帧衰减偏移(ScreenEffect)。
+(边框/HUD 面板/符卡宣言/关卡标题/弹字, 画全窗口不裁剪不振; C++ Gui 绘制前
+清零 offset, Gui.cpp:159-160)。震屏 = register_shakes 登记 + 每帧衰减偏移
+(ScreenEffect)。
 """
 
 from __future__ import annotations
@@ -23,10 +24,8 @@ from .bank import SurfaceBank
 from .shake import ScreenShake
 
 _BG_COLOR = (8, 12, 30)  # 窗外区底色
-_PANEL_COLOR = (14, 18, 42)  # 右栏积分面板底色
 _FIELD_COLOR = (10, 14, 36)  # 游戏区底色(无 3D 背景数据时的占位)
-_BORDER_COLOR = (58, 66, 108)  # 游戏区边框(原作为边框贴图, 近似色环)
-Z_GUI = 100.0  # z>=此值 = Gui 层: 不裁剪不振屏(特效层横幅/标题/弹字)
+Z_GUI = 100.0  # z>=此值 = Gui 层: 不裁剪不振屏(边框/HUD/横幅/标题/弹字)
 
 #: 默认键位(th07 原作: Z=射击 X=炸弹 Shift=低速 Ctrl=快进 Esc=暂停)
 _KEYMAP: dict[int, Button] = {
@@ -77,10 +76,12 @@ class PygameBackend(RenderBackend):
         self._transforms: dict[tuple, pygame.Surface] = {}
         self._sounds: dict[int, pygame.mixer.Sound | None] = {}
         self._veils: dict[int, pygame.Surface] = {}  # 符卡黑罩 alpha 档缓存
+        self._powerbar: pygame.Surface | None = None  # Power 渐变条母版(128 宽)
         self._dlg_bg_full: pygame.Surface | None = None  # 对话框渐变底母版
         self._dlg_bgs: dict[tuple[int, int], pygame.Surface] = {}  # 按 (w,h) 缓存
         self._mixer_ok = False
-        # 游戏区边框/右栏/裁剪(runner 按 scene.playfield_chrome 同步; 菜单画面关)
+        # 游戏区裁剪开关(runner 按 scene.playfield_chrome 同步; 菜单画面关;
+        # 边框/右栏面板贴图在快照 Hud 层, 不是后端画的)
         self.playfield_chrome = True
         # 3D 背景帧(runner 按 scene.frame_bg 同步; None = 纯色占位)
         self._bg: pygame.Surface | None = None
@@ -157,17 +158,12 @@ class PygameBackend(RenderBackend):
         chrome = self.playfield_chrome
         sdx, sdy = self._shake.tick() if chrome else (0, 0)
         if chrome:
-            # 右栏积分面板区(原作右栏贴图背景, 近似纯色)
-            pygame.draw.rect(
-                frame,
-                _PANEL_COLOR,
-                (GAME_X + GAME_W, 0, WIN_W - GAME_X - GAME_W, WIN_H),
-            )
+            # 边框/右栏面板是快照里的 front.anm 贴图 sprite(HUD 生产, Gui 层),
+            # 后端只管裁剪: 世界 sprite 裁进游戏区(原作场外包边不露实体)
             if self._bg is None:
                 pygame.draw.rect(
                     frame, _FIELD_COLOR, (GAME_X, GAME_Y, GAME_W, GAME_H)
                 )  # 游戏区底色(无背景数据占位)
-            # 世界 sprite 裁进游戏区(原作场外包边不露实体)
             frame.set_clip(pygame.Rect(GAME_X, GAME_Y, GAME_W, GAME_H))
             if self._bg is not None:
                 # 3D 背景(世界空间, 随震屏偏移; z 序最底)
@@ -182,14 +178,6 @@ class PygameBackend(RenderBackend):
             else:
                 self._blit_sprite(frame, spr, sdx, sdy)
         frame.set_clip(None)
-        if chrome:
-            # 游戏区边框环(画在 sprite 之后, 保证边线干净)
-            pygame.draw.rect(
-                frame,
-                _BORDER_COLOR,
-                (GAME_X - 2, GAME_Y - 2, GAME_W + 4, GAME_H + 4),
-                2,
-            )
         for text in snapshot.texts:
             self._blit_text(frame, text.text, text.x, text.y, text.size, text.rgba)
         if self._clock is not None:
@@ -232,6 +220,23 @@ class PygameBackend(RenderBackend):
             w, h = int(spr.scale_x), int(spr.scale_y)
             if w > 0 and h > 0:
                 frame.blit(self._dialog_bg(w, h), (int(spr.x) + dx, int(spr.y) + dy))
+            return
+        if spr.image == "misc:powerbar":
+            # Power 渐变条(程序化, Gui.cpp:1620-1656): 左 0xe0e0e0ff → 右 0x80e0e0ff;
+            # x/y 为左上, scale_x=当前宽度, 从 128 宽母版切
+            w = int(spr.scale_x)
+            if w > 0:
+                if self._powerbar is None:
+                    bar = pygame.Surface((128, 16), pygame.SRCALPHA)
+                    for bx in range(128):
+                        a = 224 + (128 - 224) * bx // 127
+                        pygame.draw.line(bar, (224, 224, 255, a), (bx, 0), (bx, 15))
+                    self._powerbar = bar
+                frame.blit(
+                    self._powerbar,
+                    (int(spr.x) + dx, int(spr.y) + dy),
+                    (0, 0, min(w, 128), 16),
+                )
             return
         img = self.bank.get(spr.image)
         sx = spr.scale * spr.scale_x

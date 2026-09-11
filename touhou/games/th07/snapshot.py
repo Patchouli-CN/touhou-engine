@@ -22,6 +22,7 @@ from ...schemas.anm import parse_anm
 from ...schemas.archive import load_entry
 from .data import bullet_active_sprite_idx
 from .ecl_state import EnemyExtras
+from .hud import emit_hud
 from .player import OptionState
 
 if TYPE_CHECKING:
@@ -420,36 +421,10 @@ class Th07SnapshotSystem(System["Th07World"]):
                 SpriteDraw("misc:hitpoint", _gx(p.pos.x), _gy(p.pos.y), z=51.0)
             )
 
-    # ---- HUD/对话/结算文本(右栏 + 覆盖层) ----
+    # ---- HUD(贴图面板, hud.py) + boss 条/结算/终局文本 ----
     def _emit_hud(self, world: Th07World, ctx: FrameContext) -> None:
+        emit_hud(world, ctx.draw.sprites, lambda name: self._bank(world, name))
         texts = ctx.draw.texts
-        g = world.th07
-        gl = world.globals
-        rows = (
-            ("SCORE", f"{gl.gui_score:09d}"),
-            ("PLAYER", f"x{int(g.lives)}"),
-            ("BOMB", f"x{int(g.bombs)}"),
-            ("POWER", f"{int(g.power)}"),
-            ("GRAZE", f"{g.graze_in_total}"),
-            ("POINT", f"{g.point_items_collected_this_stage}"),
-            ("CHERRY", f"{g.cherry} / {g.cherry_max}"),
-        )
-        for i, (label, value) in enumerate(rows):
-            y = 24 + i * 28
-            texts.append(
-                TextDraw(label, 412.0, float(y), size=15, rgba=(170, 200, 255, 255))
-            )
-            texts.append(TextDraw(value, 500.0, float(y), size=15))
-        if g.cherry_plus > g.cherry_start:
-            texts.append(
-                TextDraw(
-                    f"CherryPlus {g.cherry_plus}",
-                    412.0,
-                    24.0 + len(rows) * 28,
-                    size=13,
-                    rgba=(255, 170, 200, 255),
-                )
-            )
         boss = world.boss
         if boss is not None and boss.is_active and boss.max_life > 0:
             frac = max(0.0, min(1.0, boss.life / boss.max_life))

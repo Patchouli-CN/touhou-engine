@@ -64,8 +64,8 @@ def test_play_sounds_no_data_no_crash(backend: PygameBackend) -> None:
     backend.play_sounds([0, 5, 999])
 
 
-def test_playfield_clip_border_and_panel(backend: PygameBackend) -> None:
-    """世界 sprite 裁进游戏区; 区外有边框, 右栏底色与外区可分辨。"""
+def test_playfield_clip(backend: PygameBackend) -> None:
+    """世界 sprite 裁进游戏区; 边框/面板贴图在快照 HUD 层, 后端不自绘边框。"""
     # 20x20 兜底块压在游戏区左上角: 区外一半必须被裁掉
     snap = SceneSnapshot(
         0, sprites=(SpriteDraw("item:1", float(GAME_X), float(GAME_Y)),)
@@ -75,15 +75,23 @@ def test_playfield_clip_border_and_panel(backend: PygameBackend) -> None:
     assert frame is not None
     sprite_rgb = frame.get_at((GAME_X + 5, GAME_Y + 5))[:3]
     assert sprite_rgb != backend_mod._FIELD_COLOR  # 区内画上了
-    # 区外(边框之外)不沾 sprite
+    # 区外不沾 sprite(含原 2px 色环位 —— 色环已退役, 边框走 front.anm 贴图)
     assert frame.get_at((GAME_X - 5, GAME_Y + 100))[:3] == backend_mod._BG_COLOR
     assert frame.get_at((GAME_X - 5, GAME_Y - 5))[:3] == backend_mod._BG_COLOR
-    # 边框环存在
-    assert frame.get_at((GAME_X - 1, GAME_Y + 100))[:3] == backend_mod._BORDER_COLOR
-    assert frame.get_at((GAME_X + 100, GAME_Y - 1))[:3] == backend_mod._BORDER_COLOR
-    # 右栏面板底色与外区可分辨
-    assert frame.get_at((GAME_X + GAME_W + 30, 100))[:3] == backend_mod._PANEL_COLOR
-    assert backend_mod._PANEL_COLOR != backend_mod._BG_COLOR
+    assert frame.get_at((GAME_X - 1, GAME_Y + 100))[:3] == backend_mod._BG_COLOR
+    assert frame.get_at((GAME_X + 100, GAME_Y - 1))[:3] == backend_mod._BG_COLOR
+    # 右栏/顶底条无 HUD sprite 时保持窗外区底色
+    assert frame.get_at((GAME_X + GAME_W + 30, 100))[:3] == backend_mod._BG_COLOR
+
+
+def test_playfield_chrome_off_no_clip(backend: PygameBackend) -> None:
+    """playfield_chrome=False(菜单画面): 不裁剪, 游戏区外 sprite 照常画。"""
+    backend.playfield_chrome = False
+    snap = SceneSnapshot(0, sprites=(SpriteDraw("item:1", 4.0, 4.0),))
+    backend._render(snap)
+    frame = backend._frame_surf
+    assert frame is not None
+    assert frame.get_at((4, 4))[:3] != backend_mod._BG_COLOR  # 角落兜底块画上
 
 
 def test_window_scale_configurable() -> None:
