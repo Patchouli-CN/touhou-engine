@@ -68,7 +68,7 @@ class _EnemyVis:
 
 
 class Th07SnapshotSystem(System["Th07World"]):
-    """OUTPUT 槽: 世界状态 → ctx.draw(敌人/弹/道具/自机/激光/HUD/对话文本)。"""
+    """OUTPUT 槽: 世界状态 → ctx.draw(敌人/弹/道具/自机/激光/HUD)。"""
 
     def __init__(self, *, anm_version: int = 2) -> None:
         self._anm_version = anm_version
@@ -463,7 +463,6 @@ class Th07SnapshotSystem(System["Th07World"]):
                     rgba=(255, 90, 110, 255),
                 )
             )
-        self._emit_dialog(world, ctx)
         self._emit_stage_results(world, ctx)
         if world.game_over:
             texts.append(
@@ -485,32 +484,6 @@ class Th07SnapshotSystem(System["Th07World"]):
                     rgba=(255, 230, 130, 255),
                 )
             )
-
-    def _emit_dialog(self, world: Th07World, ctx: FrameContext) -> None:
-        vm = world.msg_vm
-        if vm is None or not world.msg_active:
-            return
-        for i, line in enumerate(vm.dialogue_lines):
-            if line.visible:
-                ctx.draw.texts.append(
-                    TextDraw(
-                        line.shown_text,
-                        float(GAME_X + 16),
-                        float(GAME_Y + GAME_H - 80 + i * 26),
-                        size=16,
-                    )
-                )
-        for i, line in enumerate(vm.intro_lines):
-            if line.visible:
-                ctx.draw.texts.append(
-                    TextDraw(
-                        line.shown_text,
-                        float(GAME_X + 60),
-                        float(GAME_Y + 180 + i * 26),
-                        size=16,
-                        rgba=(200, 255, 200, 255),
-                    )
-                )
 
     def _emit_stage_results(self, world: Th07World, ctx: FrameContext) -> None:
         panel = world.stage_results

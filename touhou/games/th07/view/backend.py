@@ -77,6 +77,8 @@ class PygameBackend(RenderBackend):
         self._transforms: dict[tuple, pygame.Surface] = {}
         self._sounds: dict[int, pygame.mixer.Sound | None] = {}
         self._veils: dict[int, pygame.Surface] = {}  # 符卡黑罩 alpha 档缓存
+        self._dlg_bg_full: pygame.Surface | None = None  # 对话框渐变底母版
+        self._dlg_bgs: dict[tuple[int, int], pygame.Surface] = {}  # 按 (w,h) 缓存
         self._mixer_ok = False
         # 游戏区边框/右栏/裁剪(runner 按 scene.playfield_chrome 同步; 菜单画面关)
         self.playfield_chrome = True
@@ -225,6 +227,12 @@ class PygameBackend(RenderBackend):
                 self._veils[spr.alpha] = veil
             frame.blit(veil, (GAME_X + dx, GAME_Y + dy))
             return
+        if spr.image == "misc:dialogbox":
+            # 对话框底(程序化渐变 quad, Gui.cpp:1142-1169): 顶 alpha 0xd0 → 底 0x90
+            w, h = int(spr.scale_x), int(spr.scale_y)
+            if w > 0 and h > 0:
+                frame.blit(self._dialog_bg(w, h), (int(spr.x) + dx, int(spr.y) + dy))
+            return
         img = self.bank.get(spr.image)
         sx = spr.scale * spr.scale_x
         sy = spr.scale * spr.scale_y
@@ -297,6 +305,20 @@ class PygameBackend(RenderBackend):
                 alpha_px[:] = (alpha_px.astype("uint16") * qa // 255).astype("uint8")
             self._transforms[key] = out
         return out
+
+    def _dialog_bg(self, w: int, h: int) -> pygame.Surface:
+        """对话框渐变底缓存: 顶 alpha 0xd0 → 底 0x90 (Gui.cpp:1147-1148)。"""
+        box = self._dlg_bgs.get((w, h))
+        if box is None:
+            if self._dlg_bg_full is None:
+                full = pygame.Surface((w, 48), pygame.SRCALPHA)
+                for y in range(48):
+                    a = 0xD0 + (0x90 - 0xD0) * y // 47
+                    pygame.draw.line(full, (0, 0, 0, a), (0, y), (w - 1, y))
+                self._dlg_bg_full = full
+            box = self._dlg_bg_full.subsurface((0, 0, w, h))
+            self._dlg_bgs[(w, h)] = box
+        return box
 
     def _font(self, size: int) -> pygame.font.Font:
         font = self._fonts.get(size)

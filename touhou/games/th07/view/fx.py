@@ -7,8 +7,8 @@ EnemyDied→爆散 (EnemyManager.cpp:951-1020), PlayerDied→大爆 (Player.cpp:
 SpellcardBegan→宣言横幅+魔法阵+符卡环 (EclManager.cpp:658-708),
 BombStarted→bomb 演出 (BombData.cpp 各 *Draw + Gui.cpp:343-362),
 MsgMusicChange→标题 BGM 行 (Gui.cpp:959-973), 收点/BONUS 弹字经
-world.frame_popups/frame_bonus_score 透出消费, 对话立绘每帧采 world.msg_vm
-透出状态 (Gui.cpp:848-898/1115-1154)。
+world.frame_popups/frame_bonus_score 透出消费, 对话窗(立绘+底图+文字+介绍名)每帧
+采 world.msg_vm 透出状态 (Gui.cpp:848-898/1115-1185)。
 
 无 anm 数据(archive None)时全层静默, 与快照的语义键兜底同理。
 """
@@ -28,7 +28,7 @@ from ....schemas.anm import parse_anm
 from ....schemas.archive import load_entry
 from ..world import Th07World
 from .bombfx import BombFx
-from .dialog import DialogPortraits
+from .dialog import DialogBox, DialogPortraits
 from .effects import FxParticles
 from .popups import BonusBanners, ScorePopups, StageTitle, StatusBanner
 from .spellcard import _FACE_ANM, _SC_BG_VMS, MagicCircle, SpellcardBanner, SpellRing
@@ -46,6 +46,7 @@ class GameFx:
         self.particles = FxParticles()
         self.bombfx = BombFx(self._rng)
         self.dialog = DialogPortraits(self._rng)
+        self.dialog_box = DialogBox(self._rng)
         self.banner = SpellcardBanner(self._rng)
         self.circle = MagicCircle(self._rng)
         self.ring = SpellRing(self._rng)
@@ -170,6 +171,9 @@ class GameFx:
         sprites += sp
         texts += tx
         sprites += self.dialog.step(w, self._bank)
+        sp, tx = self.dialog_box.step(w, self._bank)
+        sprites += sp
+        texts += tx
         sprites += self.title.step()
         sprites += self.popups.step((w.player.pos.x, w.player.pos.y))
         sprites += self.status.step(w)

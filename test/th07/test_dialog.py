@@ -11,12 +11,14 @@ from touhou.engine import InputFrame
 from touhou.engine.anm import AnmBank, SpriteSlot, build_script
 from touhou.engine.msg import MsgExecutor
 from touhou.engine.rng import Rng
-from touhou.games.th07.view.dialog import Z_PORTRAIT, DialogPortraits
+from touhou.games.th07.view.dialog import Z_BOX, Z_PORTRAIT, DialogBox, DialogPortraits
 from touhou.games.th07.view.fx import GameFx
 from touhou.schemas.anm import AnmSprite
 from touhou.schemas.anm_script import (
     Anchor3,
+    Exit,
     ExitHide2,
+    Fade,
     InterpAlpha,
     InterpPos,
     InterruptLabel,
@@ -29,10 +31,12 @@ from touhou.schemas.anm_script import (
 from touhou.schemas.msg import (
     ChangeFace,
     Delete,
+    Dialogue,
     MsgFile,
     Pause,
     ShowPortrait,
     Switch,
+    TextIntroduce,
 )
 
 from .conftest import needs_data
@@ -309,6 +313,185 @@ def test_z_is_gui_layer() -> None:
     assert 100.0 <= Z_PORTRAIT < 120.0
 
 
+# ---- 对话窗本体(DialogBox): 底图/文字/介绍名 ----
+
+
+def _line_script(sprite: int, x: float, y: float, *, intro: bool):
+    """text.anm 行信封(脚本 0-3 同构): 对话=12f 淡入后 Exit, 介绍名=60f 到 240 后定时退场。"""
+    instrs = [SetActiveSprite(time=0, flags=0, sprite=sprite)]
+    if not intro:
+        instrs.append(Anchor3(time=0, flags=0))
+    instrs += [
+        SetTranslation(time=0, flags=0, x=x, y=y, z=0.0),
+        SetAlpha(time=0, flags=0, alpha=0),
+        Fade(
+            time=0, flags=0, alpha=240 if intro else 255, duration=60 if intro else 12
+        ),
+    ]
+    if intro:
+        instrs += [
+            Fade(time=360, flags=0, alpha=0, duration=60),
+            ExitHide2(time=420, flags=0),
+        ]
+    else:
+        instrs.append(Exit(time=12, flags=0))
+    return build_script(instrs)
+
+
+def _text_bank() -> AnmBank:
+    """text.anm 合成: 脚本 0/1 对话(72,390)/(72,410), 2/3 介绍名(272,352)/(272,368)。"""
+    return AnmBank(
+        scripts={
+            0: _line_script(0, 72.0, 390.0, intro=False),
+            1: _line_script(1, 72.0, 410.0, intro=False),
+            2: _line_script(2, 272.0, 352.0, intro=True),
+            3: _line_script(3, 272.0, 368.0, intro=True),
+        },
+        sprites={
+            0: _spr(0, 320, 17),
+            1: _spr(1, 320, 17),
+            2: _spr(2, 256, 17),
+            3: _spr(3, 256, 17),
+        },
+    )
+
+
+def _box_bank_of(name: str):
+    if name == "text.anm":
+        return _text_bank()
+    return _bank_of(name)
+
+
+def _box_of(sprites):
+    return next((s for s in sprites if s.image == "misc:dialogbox"), None)
+
+
+def _run_box(ex: MsgExecutor, db: DialogBox, world, frames: int) -> list[tuple]:
+    out = []
+    for _ in range(frames):
+        ex.step()
+        out.append(db.step(world, _box_bank_of))
+    return out
+
+
+def test_box_grows_with_msg_timer() -> None:
+    """底图: x48..400/y384 起前 60 帧渐高到 48, z 在立绘之上, 消息结束后消失。"""
+    ex = MsgExecutor(
+        MsgFile(messages=[(Pause(time=120, duration=5), Delete(time=130))])
+    )
+    ex.read(0)
+    db = DialogBox(Rng(0))
+    frames = _run_box(ex, db, _world(ex), 200)
+    early = _box_of(frames[30][0])
+    assert early is not None and 0 < early.scale_y < 48.0  # timer*48/60 渐高
+    assert (early.x, early.y, early.scale_x) == (48.0, 384.0, 352.0)
+    full = _box_of(frames[100][0])
+    assert full is not None and full.scale_y == 48.0
+    assert full.z == Z_BOX > Z_PORTRAIT
+    assert all(_box_of(s) is None for s, _ in frames[-20:])  # Delete 后不画
+
+
+def test_box_without_any_banks() -> None:
+    """无 anm 数据: 底图照画(程序化), 文字静态信封兜底(alpha 255)。"""
+    ex = MsgExecutor(
+        MsgFile(
+            messages=[
+                (
+                    Dialogue(time=0, color=0, line=0, text="テスト"),
+                    Pause(time=1, duration=300),
+                    Delete(time=400),
+                )
+            ]
+        )
+    )
+    ex.read(0)
+    db = DialogBox(Rng(0))
+    world = _world(ex)
+    out = []
+    for _ in range(40):
+        ex.step()
+        out.append(db.step(world, lambda name: None))
+    box = _box_of(out[-1][0])
+    assert box is not None
+    text = next(t for _, ts in out if (t := next((x for x in ts if x.text), None)))
+    assert (text.x, text.y, text.rgba[3]) == (72.0, 390.0, 255)
+
+
+def test_dialog_lines_typewriter_and_fade() -> None:
+    """对话两行: (72,390)/(72,410) 逐字显示 + 12f 淡入, 颜色按 textColorsA 分色。"""
+    ex = MsgExecutor(
+        MsgFile(
+            messages=[
+                (
+                    Dialogue(time=0, color=0, line=0, text="さむ〜いい加減"),
+                    Dialogue(time=0, color=1, line=1, text="かい？"),
+                    Pause(time=1, duration=300),
+                    Delete(time=400),
+                )
+            ]
+        )
+    )
+    ex.read(0)
+    db = DialogBox(Rng(0))
+    frames = _run_box(ex, db, _world(ex), 100)
+    # 逐字: 中途某帧是前缀, 最终全量
+    line0 = [ts[0] for _, ts in frames if ts and ts[0].y == 390.0]
+    assert any(0 < len(t.text) < 7 for t in line0)
+    assert line0[-1].text == "さむ〜いい加減"
+    assert line0[-1].rgba == (0xE8, 0xF0, 0xFF, 255)
+    fading = next(t for t in line0 if t.rgba[3] < 255)
+    assert fading is not None  # 12f 淡入途中
+    line1 = [t for _, ts in frames for t in ts if t.y == 410.0]
+    assert line1[-1].text == "かい？" and line1[-1].x == 72.0
+    assert line1[-1].rgba == (0xFF, 0xE8, 0xF0, 255)
+
+
+def test_intro_name_right_aligned_and_fades_out() -> None:
+    """介绍名: 右缘 400(中心锚 272 + sprite 半宽 128)右对齐, 峰值 alpha 240, 420f 自隐。"""
+    name0 = "冬の忘れ物　　　　　"
+    ex = MsgExecutor(
+        MsgFile(
+            messages=[
+                (
+                    TextIntroduce(time=0, color=1, line=0, text=name0),
+                    TextIntroduce(time=0, color=1, line=1, text="レティ"),
+                    Pause(time=1, duration=600),
+                    Delete(time=700),
+                )
+            ]
+        )
+    )
+    ex.read(0)
+    db = DialogBox(Rng(0))
+    frames = _run_box(ex, db, _world(ex), 500)
+    names = [t for _, ts in frames for t in ts if t.y < 384.0]
+    assert names, "介绍名未出现"
+    full = next(t for t in names if t.text == name0)
+    assert full.x + 15.0 * len(name0) == 400.0  # 全角 15px/字, 右缘 400
+    assert full.y == 352.0 - 8.5
+    peak = max(t.rgba[3] for t in names)
+    assert peak == 240
+    assert not [t for _, ts in frames[430:] for t in ts if t.y < 384.0], "420f 后名未隐"
+
+
+def test_stage6_hidden_also_hides_box() -> None:
+    """6 面 msg 1/11: 底图/文字也不画 (Gui.cpp:1124-1129 早退在底图之前)。"""
+    msg = (
+        Dialogue(time=0, color=0, line=0, text="あ"),
+        Pause(time=1, duration=100),
+        Delete(time=200),
+    )
+    ex = MsgExecutor(MsgFile(messages=[msg, msg]))
+    db = DialogBox(Rng(0))
+    w = _world(ex, stage_no=6)
+    ex.read(1)
+    frames = _run_box(ex, db, w, 100)
+    assert ex.active and all(s == [] and t == [] for s, t in frames)
+    ex.read(0)
+    frames = _run_box(ex, db, w, 100)
+    assert any(_box_of(s) is not None for s, _ in frames)
+
+
 # ---- headless 全链(真机数据) ----
 
 
@@ -391,3 +574,42 @@ def test_chain_dialog_portraits_not_cross_stage() -> None:
         if right_img:
             break
     assert right_img, "二面对话右侧立绘未出现"
+
+
+@needs_data
+def test_chain_dialog_box_stage1() -> None:
+    """一面战前对话: 底图渐高到 48/文字在 (72,390) 起/介绍名出现后定时自隐。"""
+    from touhou.engine import Button
+    from touhou.games.th07.compose import compose
+    from touhou.games.th07.world import compose_world
+
+    w = compose_world(compose(), character=0, difficulty=1, seed=42)
+    w.th07.lives = 99
+    fx = GameFx(w)
+    box_full = box_growing = False
+    saw_line0 = saw_name = False
+    name_gone_after = False
+    name_last_seen = -1
+    for i in range(9000):
+        pressed = frozenset({Button.SHOT}) if i % 20 == 0 else frozenset()
+        w.tick(InputFrame(pressed=pressed, held=frozenset({Button.SHOT})))
+        sprites, texts = fx.step()
+        box = _box_of(sprites)
+        if box is not None:
+            box_growing = box_growing or box.scale_y < 48.0
+            box_full = box_full or box.scale_y == 48.0
+            assert box.z == Z_BOX > Z_PORTRAIT
+        for t in texts:
+            if t.y == 390.0 and t.x == 72.0:
+                saw_line0 = True  # 对话行 1 锚点 (text.anm 脚本 0)
+            if "レティ" in t.text:
+                saw_name = True
+                name_last_seen = i
+        if saw_name and i > name_last_seen + 5:
+            name_gone_after = True  # 介绍名信封 420f 自隐后不再出现
+        if box_full and saw_line0 and name_gone_after:
+            break
+    assert box_growing and box_full, "底图渐高/满高未观察到"
+    assert saw_line0, "对话文字未在 (72,390) 出现"
+    assert saw_name, "介绍名(レティ)未出现"
+    assert name_gone_after, "介绍名未按时自隐"
