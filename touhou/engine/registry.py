@@ -4,8 +4,8 @@
 注册表不反向 import 作品包; 入口负责 import 作品包触发登记。同维度重名登记
 fail fast, 防静默覆盖。
 
-装饰器只给"框架按作品名解析、要拿到类去实例化"的接缝(world/ecl_host/app);
-表/路径/名单/参数走 register(game, ...)。
+装饰器只给"框架按名字解析、要拿到类去实例化"的接缝: world/ecl_host/app 按作品名,
+renderer 按后端名(正交维度); 表/路径/名单/参数走 register(game, ...)。
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from .assembly import (
     check_assembly,
 )
 from .core import World
+from .render import RenderBackend
 
 _Comp = TypeVar("_Comp", bound=type)
 
@@ -37,12 +38,14 @@ class TouhouRegistry:
     _registry_resources: dict[str, ResourcePaths] = {}
     _registry_anm_version: dict[str, int] = {}
     _registry_save: dict[str, SaveSemantics] = {}
+    #: 渲染后端按"后端名"登记(与作品名无关的正交维度), 值是构造器
+    _registry_renderer: dict[str, Callable[..., RenderBackend]] = {}
 
     @classmethod
     def _claim(cls, registry: dict, game: str, kind: str) -> None:
         """确认该维度未被占, 已被占抛 ValueError。"""
         if game in registry:
-            raise ValueError(f"作品 {game!r} 的 {kind} 已登记, 重名登记被拒")
+            raise ValueError(f"{kind} 重名登记被拒: {game!r} 已登记")
 
     @classmethod
     def _declare(cls, registry: dict, kind: str, game: str) -> Callable[[_Comp], _Comp]:
@@ -69,6 +72,22 @@ class TouhouRegistry:
     def app(cls, game: str) -> Callable[[type[WindowApp]], type[WindowApp]]:
         """声明一个作品的窗口 App 类。"""
         return cls._declare(cls._registry_app, "app", game)
+
+    @classmethod
+    def renderer(cls, name: str) -> Callable[[_Comp], _Comp]:
+        """声明一个渲染后端(按后端名, 与作品名无关的正交维度)。"""
+        return cls._declare(cls._registry_renderer, "renderer", name)
+
+    @classmethod
+    def renderer_cls(cls, name: str) -> Callable[..., RenderBackend]:
+        """按后端名取渲染后端构造器; 未登记抛 KeyError 带已登记名单。"""
+        try:
+            return cls._registry_renderer[name]
+        except KeyError:
+            raise KeyError(
+                f"未登记的渲染后端: {name!r}"
+                f"(已登记: {', '.join(sorted(cls._registry_renderer))})"
+            ) from None
 
     @classmethod
     def register(

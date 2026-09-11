@@ -23,9 +23,10 @@ class Th07App:
         *,
         seed: int | None = None,
         scale: int | None = None,
+        renderer: str | None = None,
     ) -> None:
         """开窗口跑完整流程: 标题 → 菜单 → 选择 → 对局 → 回标题。"""
-        _view().run_app(assembly, seed=seed, scale=scale)
+        _view().run_app(assembly, seed=seed, scale=scale, renderer=renderer)
 
     def run_game(
         self,
@@ -36,6 +37,7 @@ class Th07App:
         stage_no: int = 1,
         seed: int | None = None,
         scale: int | None = None,
+        renderer: str | None = None,
     ) -> object:
         """开窗口直进一局(跳过标题), 返回打完的世界。"""
         return _view().run_game(
@@ -45,4 +47,5 @@ class Th07App:
             stage_no=stage_no,
             seed=seed,
             scale=scale,
+            renderer=renderer,
         )

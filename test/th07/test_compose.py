@@ -8,12 +8,18 @@ import sys
 import msgspec
 import pytest
 
-from touhou.engine import GameAssembly, SaveSemantics, World
+from touhou.engine import (
+    GameAssembly,
+    SaveSemantics,
+    TouhouRegistry,
+    World,
+)
 from touhou.games import available_games
 from touhou.games.th07 import compose
 from touhou.games.th07.app import Th07App
 from touhou.games.th07.compose import DATA_PATH
 from touhou.games.th07.ecl_host import Th07EclHost
+from touhou.games.th07.view.backend import PygameBackend
 from touhou.games.th07.world import Th07World, compose_world
 from touhou.schemas.archive import open_archive
 
@@ -28,12 +34,17 @@ def test_compose_produces_valid_assembly() -> None:
     assert asm.world is Th07World
     assert asm.anm_version == 2
     assert asm.ecl_host is Th07EclHost
-    assert asm.save == SaveSemantics(score_file="score.dat")
+    assert asm.save == SaveSemantics(score_file="score.json")
 
 
 def test_app_decorator_registers_th07_window_app() -> None:
     """窗口 App 走装饰器登记: 装配取到 Th07App 类。"""
     assert compose().app is Th07App
+
+
+def test_renderer_decorator_registers_pygame_backend() -> None:
+    """渲染后端按后端名登记(正交维度): "pygame" 可经注册表解析。"""
+    assert TouhouRegistry.renderer_cls("pygame") is PygameBackend
 
 
 def test_world_owns_assembly_contract() -> None:
@@ -47,6 +58,13 @@ def test_compose_world_requires_registered_world() -> None:
     """未登记世界的装配开不了局(装配入口不再绕过注册表)。"""
     bare = msgspec.structs.replace(compose(), world=None)
     with pytest.raises(ValueError, match="未登记世界"):
+        compose_world(bare, character=0)
+
+
+def test_compose_world_requires_registered_ecl_host() -> None:
+    """未登记 ECL 宿主的装配开不了局(宿主取自注册表, 不再直接 import)。"""
+    bare = msgspec.structs.replace(compose(), ecl_host=None)
+    with pytest.raises(ValueError, match="未登记 ECL 宿主"):
         compose_world(bare, character=0)
 
 

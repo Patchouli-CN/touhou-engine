@@ -25,6 +25,9 @@ def main() -> None:
     parser.add_argument(
         "--scale", type=int, default=None, help="窗口缩放倍率(缺省用后端的默认)"
     )
+    parser.add_argument(
+        "--renderer", default=None, help="渲染后端名(缺省 pygame, 按注册表解析)"
+    )
     args = parser.parse_args()
     assembly = TouhouRegistry.create_game(args.game)
     app_cls = assembly.app
@@ -39,9 +42,10 @@ def main() -> None:
             stage_no=args.stage,
             seed=args.seed,
             scale=args.scale,
+            renderer=args.renderer,
         )
     else:
-        app.run_app(assembly, seed=args.seed, scale=args.scale)
+        app.run_app(assembly, seed=args.seed, scale=args.scale, renderer=args.renderer)
 
 
 if __name__ == "__main__":

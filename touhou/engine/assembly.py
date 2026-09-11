@@ -56,6 +56,7 @@ class WindowApp(Protocol):
         *,
         seed: int | None = None,
         scale: int | None = None,
+        renderer: str | None = None,
     ) -> None: ...
 
     def run_game(
@@ -67,6 +68,7 @@ class WindowApp(Protocol):
         stage_no: int = 1,
         seed: int | None = None,
         scale: int | None = None,
+        renderer: str | None = None,
     ) -> object: ...
 
 

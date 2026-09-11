@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from ....engine import GameAssembly, RenderBackend
+from ....engine import GameAssembly, RenderBackend, TouhouRegistry
 from ....engine.score_store import ScoreStore
 from ....schemas.archive import open_archive
 from ..config import Th07Config, load_config, save_config
@@ -18,7 +18,6 @@ from ..replay import (
     save_replay,
 )
 from ..world import Th07World, compose_world
-from .backend import PygameBackend
 from .bg3d import StageBg
 from .fx import GameFx
 from .game_scene import GameScene
@@ -31,14 +30,14 @@ from .replay import ReplayListScene, ReplayWatchScene
 from .scene import run_scenes
 from .title import MenuMemory, StartRequest, TitleScene
 
-#: 成绩库落盘位置(原版 score.dat 的 JSON 简化版, engine/score_store.py)
-SCORE_PATH = "score.json"
-
 #: 配置落盘位置(原版 th07.cfg 的 JSON 简化版, games/th07/config.py)
 CONFIG_PATH = "config.json"
 
 #: 录像目录(原版 exe 旁 ./replay/, ReplayManager.cpp:1997-2000)
 REPLAY_DIR = "replays"
+
+#: 默认渲染后端名(按后端名从注册表解析, 见 engine/registry.py)
+DEFAULT_RENDERER = "pygame"
 
 _MENU_EXTRA_START = 1  # MENU_CURSOR_PREINPUT_EXTRA_START (MainMenu.hpp:44)
 _MENU_PRACTICE_START = 2  # MENU_CURSOR_PREINPUT_PRACTICE_START (MainMenu.hpp:45)
@@ -69,27 +68,34 @@ def run_app(
     *,
     seed: int | None = None,
     scale: int | None = None,
-    score_path: str = SCORE_PATH,
+    score_path: str | None = None,
     config_path: str = CONFIG_PATH,
     replay_dir: str = REPLAY_DIR,
     backend: RenderBackend | None = None,
+    renderer: str | None = None,
 ) -> None:
     """开窗口跑完整流程: 标题 → 主菜单 → 难度/机体/装备 → 对局 → 回标题; Quit 退出。
 
     scene 接缝全在这里显式装配: 后续单加新画面 = 新 Scene 子类 + 往
     submenus/工厂链里挂一项。对局全程录制, 结算时自动存一份到 replay_dir
     (原版在结算画面选槽存盘, ResultScreen 留待后续单, 先自动存)。
+    score_path: 缺省用装配登记的存档名(assembly.save.score_file)。
+    backend: 直接注入后端实例(测试用); 缺省按 renderer 名从注册表解析。
     """
     config = load_config(config_path)
+    store_path = assembly.save.score_file if score_path is None else score_path
     store = ScoreStore.load(
-        score_path, spellcard_count=len(assembly.data.spellcard_scores)
+        store_path, spellcard_count=len(assembly.data.spellcard_scores)
     )
     memory = MenuMemory(default_difficulty=config.default_difficulty)
     archive = open_archive(
         assembly.resources.data_path, format_name=assembly.resources.archive_format
     )
     if backend is None:
-        backend = PygameBackend(archive, anm_version=assembly.anm_version)
+        # "pygame" 后端由 view/__init__.py import 时登记(@TouhouRegistry.renderer)
+        backend = TouhouRegistry.renderer_cls(renderer or DEFAULT_RENDERER)(
+            archive, anm_version=assembly.anm_version
+        )
     music = BgmPlayer(
         archive,
         (
@@ -229,7 +235,7 @@ def run_app(
                 )
 
         def on_result(w: Th07World) -> None:
-            store.save(score_path)
+            store.save(store_path)
             # 对局结束自动存一份录像(原版结算画面选槽, 留待; SaveReplay 口径)
             save_replay(recorder.finish(w), new_replay_path(replay_dir))
 
@@ -262,6 +268,7 @@ def run_game(
     seed: int | None = None,
     scale: int | None = None,
     backend: RenderBackend | None = None,
+    renderer: str | None = None,
     world: Th07World | None = None,
 ) -> Th07World:
     """开窗口直进一局(跳过标题); 返回打完的世界。"""
@@ -274,7 +281,9 @@ def run_game(
             seed=seed,
         )
     if backend is None:
-        backend = PygameBackend(world.archive, anm_version=assembly.anm_version)
+        backend = TouhouRegistry.renderer_cls(renderer or DEFAULT_RENDERER)(
+            world.archive, anm_version=assembly.anm_version
+        )
     music = BgmPlayer(
         world.archive,
         (

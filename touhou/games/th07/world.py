@@ -644,6 +644,9 @@ def _build_world(
     2 面起满 power、起步樱点按面抬、每面 pscr 记账; 结算差异在 result.py。
     """
     res = assembly.resources
+    host_cls = assembly.ecl_host  # 作品登记的 ECL 宿主(@TouhouRegistry.ecl_host)
+    if host_cls is None:
+        raise ValueError(f"作品 {assembly.name!r} 未登记 ECL 宿主, 无法开局")
     arc = open_archive(res.data_path, format_name=res.archive_format)
     if store is None:
         if score_path is not None:
@@ -763,7 +766,7 @@ def _build_world(
     bomb_ctx = Th07BombContext(player_pos=player.pos)
 
     # ---- ECL 宿主/时间轴 ----
-    host = Th07EclHost(
+    host = host_cls(
         ecl_file,
         bullets=bullets,
         lasers=lasers,

@@ -17,6 +17,7 @@ import pygame
 
 from ....engine import Event, InputFrame, RenderBackend, SceneSnapshot
 from ....engine.input import Button
+from ....engine.registry import TouhouRegistry
 from ....schemas.archive import Archive, load_entry
 from ....schemas.sound import SOUND_EFFECTS
 from ..snapshot import GAME_H, GAME_W, GAME_X, GAME_Y, WIN_H, WIN_W
@@ -59,6 +60,7 @@ def _load_font(size: int) -> pygame.font.Font:
     return pygame.font.Font(None, size)
 
 
+@TouhouRegistry.renderer("pygame")
 class PygameBackend(RenderBackend):
     """RenderBackend 的 pygame 实现(窗口/Surface 合成/键盘/SE)。"""
 

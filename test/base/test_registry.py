@@ -40,6 +40,7 @@ class _FakeApp:
         *,
         seed: int | None = None,
         scale: int | None = None,
+        renderer: str | None = None,
     ) -> None:
         """完整流程入口(测试替身, 空实现)。"""
 
@@ -52,6 +53,7 @@ class _FakeApp:
         stage_no: int = 1,
         seed: int | None = None,
         scale: int | None = None,
+        renderer: str | None = None,
     ) -> object:
         """直进一局入口(测试替身, 空实现)。"""
         return assembly
@@ -200,3 +202,33 @@ def test_duplicate_ecl_host_rejected() -> None:
         @TouhouRegistry.ecl_host(_GAME)
         class _SecondHost:
             """后登记的假 ECL 宿主, 应被拒。"""
+
+
+def test_renderer_dimension_is_backend_name_keyed() -> None:
+    """渲染后端是正交维度: 按后端名登记与解析, 不挂作品名。"""
+
+    @TouhouRegistry.renderer("test-backend")
+    class _FakeBackend:
+        """登记测试用的假渲染后端。"""
+
+    assert TouhouRegistry.renderer_cls("test-backend") is _FakeBackend
+
+
+def test_unknown_renderer_lists_registered() -> None:
+    """未登记的后端名报 KeyError 并带已登记名单。"""
+    with pytest.raises(KeyError, match="未登记的渲染后端"):
+        TouhouRegistry.renderer_cls("no-such-backend")
+
+
+def test_duplicate_renderer_rejected() -> None:
+    """渲染后端重名登记 fail fast。"""
+
+    @TouhouRegistry.renderer("dup-backend")
+    class _FirstBackend:
+        """先登记的假渲染后端。"""
+
+    with pytest.raises(ValueError, match="重名登记被拒"):
+
+        @TouhouRegistry.renderer("dup-backend")
+        class _SecondBackend:
+            """后登记的假渲染后端, 应被拒。"""

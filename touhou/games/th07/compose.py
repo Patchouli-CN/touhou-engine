@@ -41,7 +41,8 @@ TouhouRegistry.register(
         bgm_file="thbgm.dat",
     ),
     anm_version=2,
-    save=SaveSemantics(score_file="score.dat"),
+    # 存档名 = 引擎实际读写的文件名(原版为 score.dat, 本仓是 JSON 简化版)
+    save=SaveSemantics(score_file="score.json"),
 )
 
 
