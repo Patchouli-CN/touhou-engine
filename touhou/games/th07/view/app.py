@@ -89,7 +89,7 @@ def run_app(
         assembly.resources.data_path, format_name=assembly.resources.archive_format
     )
     if backend is None:
-        backend = PygameBackend(archive, anm_version=assembly.scripts.anm_version)
+        backend = PygameBackend(archive, anm_version=assembly.anm_version)
     music = BgmPlayer(
         archive,
         (
@@ -111,7 +111,7 @@ def run_app(
             archive,
             store,
             memory,
-            anm_version=assembly.scripts.anm_version,
+            anm_version=assembly.anm_version,
             on_start=make_game,
             submenus={
                 _MENU_REPLAY: make_replay,
@@ -130,7 +130,7 @@ def run_app(
         return PlayerDataScene(
             archive,
             store,
-            anm_version=assembly.scripts.anm_version,
+            anm_version=assembly.anm_version,
             spellcard_count=len(assembly.data.spellcard_scores),
             # Player Data 是独立 chain(RegisterChain type=0, Supervisor.cpp:233),
             # 返回重建主菜单, 光标停 Player Data(MainMenu.cpp:2627-2628)
@@ -140,7 +140,7 @@ def run_app(
     def make_musicroom(title: TitleScene) -> MusicRoomScene:
         return MusicRoomScene(
             archive,
-            anm_version=assembly.scripts.anm_version,
+            anm_version=assembly.anm_version,
             # Music Room 是独立 chain(进它时 MainMenu 已销毁), 返回重建主菜单,
             # 光标停 Music Room(MainMenu.cpp:2630-2631)
             on_exit=lambda: make_title(cursor=_MENU_MUSIC_ROOM),
@@ -169,9 +169,7 @@ def run_app(
         # 看完回放回列表: C++ 重建 MainMenu 直跳 SELECT_REPLAY
         # (MainMenu.cpp:233-245), VM 阵列新建, 取消才回主菜单
         return ReplayListScene(
-            vm_set
-            if vm_set is not None
-            else MenuVmSet(archive, assembly.scripts.anm_version),
+            vm_set if vm_set is not None else MenuVmSet(archive, assembly.anm_version),
             list_replays(replay_dir),  # INIT 重扫目录(MainMenu.cpp:1973-2036)
             on_watch=make_watch,
             on_exit=on_exit,
@@ -196,9 +194,9 @@ def run_app(
             replay,
             mark,
             mode=mode,
-            fx=GameFx(world, anm_version=assembly.scripts.anm_version),
+            fx=GameFx(world, anm_version=assembly.anm_version),
             music=music,
-            bg=StageBg(world.archive, anm_version=assembly.scripts.anm_version),
+            bg=StageBg(world.archive, anm_version=assembly.anm_version),
             on_exit=lambda: make_replay_list(
                 None, on_exit=lambda: make_title(cursor=_MENU_REPLAY)
             ),
@@ -216,7 +214,7 @@ def run_app(
             practice=req.practice,
         )
         recorder = ReplayRecorder(world, name=store.last_name)
-        fx = GameFx(world, anm_version=assembly.scripts.anm_version)
+        fx = GameFx(world, anm_version=assembly.anm_version)
         if req.practice:
             # 练习对局回来: 主菜单 INIT 直跳练习选择链落到选面页
             # (isPracticeMode, MainMenu.cpp:2637-2643)
@@ -242,7 +240,7 @@ def run_app(
             recorder=recorder,
             fx=fx,
             music=music,
-            bg=StageBg(world.archive, anm_version=assembly.scripts.anm_version),
+            bg=StageBg(world.archive, anm_version=assembly.anm_version),
         )
 
     try:
@@ -276,7 +274,7 @@ def run_game(
             seed=seed,
         )
     if backend is None:
-        backend = PygameBackend(world.archive, anm_version=assembly.scripts.anm_version)
+        backend = PygameBackend(world.archive, anm_version=assembly.anm_version)
     music = BgmPlayer(
         world.archive,
         (
@@ -288,9 +286,9 @@ def run_game(
     scene = GameScene(
         world,
         on_exit=lambda: None,
-        fx=GameFx(world, anm_version=assembly.scripts.anm_version),
+        fx=GameFx(world, anm_version=assembly.anm_version),
         music=music,
-        bg=StageBg(world.archive, anm_version=assembly.scripts.anm_version),
+        bg=StageBg(world.archive, anm_version=assembly.anm_version),
     )
     run_scenes(scene, backend, title=assembly.title, scale=scale, music=music)
     return world

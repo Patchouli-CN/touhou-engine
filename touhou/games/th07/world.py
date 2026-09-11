@@ -845,7 +845,7 @@ def _build_world(
     p.add(Slot.COLLISION, Th07BorderClearSystem())
     p.add(Slot.COLLISION, ItemCollectSystem(items))
     p.add(Slot.COLLISION, LaserCollisionSystem(lasers))
-    p.add(Slot.OUTPUT, Th07SnapshotSystem(anm_version=assembly.scripts.anm_version))
+    p.add(Slot.OUTPUT, Th07SnapshotSystem(anm_version=assembly.anm_version))
     world.pipeline = p
     return world
 

@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-from ...engine import GameAssembly, GameData, ResourcePaths, SaveSemantics, ScriptSet
-from ...engine.ecl import EclMachine
-from ...engine.msg import MsgExecutor
+from ...engine import GameAssembly, GameData, ResourcePaths, SaveSemantics
 from ...engine.registry import TouhouRegistry
 from . import app as app  # 装饰器登记需要(@TouhouRegistry.app 挂在 Th07App)
 from . import data
 from . import ecl_host as ecl_host  # 装饰器登记需要(@ecl_host 挂在 Th07EclHost)
 from . import world as world  # 装饰器登记需要(@TouhouRegistry.world 挂在 Th07World)
-from .ecl_handlers import ECL_EXTRA_HANDLERS
-from .ecl_table import ECL_INSTR_SET
-from .ecl_timeline import TL_HANDLERS
 
 #: 本机真实数据包路径(needs_data 测试与此同源)
 DATA_PATH = r"D:\TOUHOU_GAME\[th07] 东方妖妖梦 (日文版)\th07.dat"
@@ -45,14 +40,7 @@ TouhouRegistry.register(
         msg_file="msg{n}.dat",
         bgm_file="thbgm.dat",
     ),
-    scripts=ScriptSet(
-        anm_version=2,
-        ecl_machine=EclMachine,
-        msg_executor=MsgExecutor,
-        ecl_instr_set=ECL_INSTR_SET,
-        ecl_extra_handlers=ECL_EXTRA_HANDLERS,
-        ecl_tl_handlers=TL_HANDLERS,
-    ),
+    anm_version=2,
     save=SaveSemantics(score_file="score.dat"),
 )
 

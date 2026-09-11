@@ -11,7 +11,6 @@ from touhou.engine import (
     GameData,
     ResourcePaths,
     SaveSemantics,
-    ScriptSet,
     TouhouRegistry,
 )
 from touhou.engine.core import World
@@ -73,7 +72,7 @@ def _register(game: str = _GAME, **overrides: object) -> None:
             ecl_file="ecl{n}.ecl",
             msg_file="msg{n}.dat",
         ),
-        "scripts": ScriptSet(anm_version=2),
+        "anm_version": 2,
     }
     kwargs.update(overrides)
     TouhouRegistry.register(game, **kwargs)  # type: ignore[arg-type]
@@ -91,7 +90,7 @@ def test_create_game_assembles_registered_pieces() -> None:
     assert assembly.name == _GAME
     assert assembly.title == "测试作品"
     assert assembly.world is _FakeWorld
-    assert assembly.scripts.anm_version == 2
+    assert assembly.anm_version == 2
     assert assembly.save == SaveSemantics()
     assert _GAME in TouhouRegistry.registered_games()
 
@@ -177,16 +176,16 @@ def test_duplicate_app_rejected() -> None:
             """后登记的假窗口 App, 应被拒。"""
 
 
-def test_ecl_host_decorator_merges_into_scripts() -> None:
-    """ECL 宿主走装饰器登记, create_game 把它并进装配的 ScriptSet。"""
+def test_ecl_host_decorator_lands_in_assembly() -> None:
+    """ECL 宿主走装饰器登记, create_game 把它作为装配字段。"""
     _register()
-    assert TouhouRegistry.create_game(_GAME).scripts.ecl_host is None
+    assert TouhouRegistry.create_game(_GAME).ecl_host is None
 
     @TouhouRegistry.ecl_host(_GAME)
     class _Host:
         """登记测试用的假 ECL 宿主。"""
 
-    assert TouhouRegistry.create_game(_GAME).scripts.ecl_host is _Host
+    assert TouhouRegistry.create_game(_GAME).ecl_host is _Host
 
 
 def test_duplicate_ecl_host_rejected() -> None:

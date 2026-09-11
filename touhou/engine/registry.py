@@ -13,14 +13,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeVar
 
-import msgspec
-
 from .assembly import (
     GameAssembly,
     GameData,
     ResourcePaths,
     SaveSemantics,
-    ScriptSet,
     WindowApp,
     check_assembly,
 )
@@ -38,7 +35,7 @@ class TouhouRegistry:
     _registry_title: dict[str, str] = {}
     _registry_data: dict[str, GameData] = {}
     _registry_resources: dict[str, ResourcePaths] = {}
-    _registry_scripts: dict[str, ScriptSet] = {}
+    _registry_anm_version: dict[str, int] = {}
     _registry_save: dict[str, SaveSemantics] = {}
 
     @classmethod
@@ -81,7 +78,7 @@ class TouhouRegistry:
         title: str,
         data: GameData,
         resources: ResourcePaths,
-        scripts: ScriptSet,
+        anm_version: int,
         save: SaveSemantics | None = None,
     ) -> None:
         """登记一部作品的装配数据(类形态的组件走各自的装饰器)。"""
@@ -89,13 +86,13 @@ class TouhouRegistry:
             (cls._registry_title, "title"),
             (cls._registry_data, "data"),
             (cls._registry_resources, "resources"),
-            (cls._registry_scripts, "scripts"),
+            (cls._registry_anm_version, "anm_version"),
         ):
             cls._claim(registry, game, kind)
         cls._registry_title[game] = title
         cls._registry_data[game] = data
         cls._registry_resources[game] = resources
-        cls._registry_scripts[game] = scripts
+        cls._registry_anm_version[game] = anm_version
         if save is not None:
             cls._claim(cls._registry_save, game, "save")
             cls._registry_save[game] = save
@@ -114,7 +111,7 @@ class TouhouRegistry:
                 ("title", cls._registry_title),
                 ("data", cls._registry_data),
                 ("resources", cls._registry_resources),
-                ("scripts", cls._registry_scripts),
+                ("anm_version", cls._registry_anm_version),
             )
             if game not in registry
         ]
@@ -128,19 +125,11 @@ class TouhouRegistry:
             title=cls._registry_title[game],
             data=cls._registry_data[game],
             resources=cls._registry_resources[game],
-            scripts=cls._collect_scripts(game),
+            anm_version=cls._registry_anm_version[game],
             save=cls._registry_save.get(game, SaveSemantics()),
             world=cls._registry_world.get(game),
             app=cls._registry_app.get(game),
+            ecl_host=cls._registry_ecl_host.get(game),
         )
         check_assembly(assembly)
         return assembly
-
-    @classmethod
-    def _collect_scripts(cls, game: str) -> ScriptSet:
-        """把装饰器登记的脚本层组件并进作品的 ScriptSet。"""
-        scripts = cls._registry_scripts[game]
-        host = cls._registry_ecl_host.get(game)
-        return (
-            scripts if host is None else msgspec.structs.replace(scripts, ecl_host=host)
-        )

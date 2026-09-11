@@ -16,7 +16,6 @@ from .assembly import (
     GameData,
     ResourcePaths,
     SaveSemantics,
-    ScriptSet,
     WindowApp,
     check_assembly,
 )
@@ -301,7 +300,6 @@ __all__ = [
     "SceneSnapshot",
     "ScoreChanged",
     "ScoreStore",
-    "ScriptSet",
     "ShotField",
     "ShotFired",
     "ShotMovementSystem",

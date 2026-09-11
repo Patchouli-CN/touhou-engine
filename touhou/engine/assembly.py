@@ -6,7 +6,6 @@ from typing import Protocol
 
 import msgspec
 
-from ..schemas.ecl.decode import InstrSet
 from .core import World
 
 
@@ -40,21 +39,6 @@ class ResourcePaths(msgspec.Struct, frozen=True):
     ecl_file: str  # 关卡 ECL 脚本文件命名
     msg_file: str  # 关卡对话文件命名
     bgm_file: str | None = None  # 高音质 BGM 包名(与 data_path 同目录)
-
-
-class ScriptSet(msgspec.Struct, frozen=True):
-    """ECL/ANM/MSG 指令集与执行器宿主; 作品在 compose 绑定指令表/handler。"""
-
-    anm_version: int  # ANM entry 头版本号(作品差异显式传入, 架构稿 §2.6)
-    anm_flat_layout: bool = False  # ANM 脚本表键布局(parse_anm 的 flat_layout)
-    ecl_machine: type | None = None  # ECL 虚拟机实现类
-    ecl_host: type | None = None  # ECL 宿主回调实现类
-    msg_executor: type | None = None  # MSG 对话执行器类
-    ecl_instr_set: InstrSet | None = None  # 作品 ECL 指令表(含符卡定制钩子)
-    # 作品专属指令类 → handler(EclMachine 的 extra_handlers 注入)
-    ecl_extra_handlers: dict | None = None
-    # 时间轴指令类 → handler(TimelineRunner 的 handlers 注入)
-    ecl_tl_handlers: dict | None = None
 
 
 class SaveSemantics(msgspec.Struct, frozen=True):
@@ -93,10 +77,11 @@ class GameAssembly(msgspec.Struct, frozen=True):
     title: str  # 作品标题
     data: GameData  # 数值表/名单
     resources: ResourcePaths  # 资源路径与命名规则
-    scripts: ScriptSet  # 指令集与执行器宿主
+    anm_version: int  # ANM entry 头版本号(作品差异显式传入, 架构稿 §2.6)
     save: SaveSemantics = msgspec.field(default_factory=SaveSemantics)
     world: type[World] | None = None  # 对局实现类(None = 对局未接入, 只能跑脚本层)
     app: type[WindowApp] | None = None  # 窗口 App 类(None = 只能 headless)
+    ecl_host: type | None = None  # ECL 宿主类(@TouhouRegistry.ecl_host 登记)
     mods: type | None = None  # mod 能力提供者类
 
 

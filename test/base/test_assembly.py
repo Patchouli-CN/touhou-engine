@@ -10,7 +10,6 @@ from touhou.engine import (
     GameData,
     ResourcePaths,
     SaveSemantics,
-    ScriptSet,
     check_assembly,
 )
 
@@ -31,7 +30,7 @@ def _asm(**overrides) -> GameAssembly:
             ecl_file="ecldata{n}.ecl",
             msg_file="msg{n}.dat",
         ),
-        "scripts": ScriptSet(anm_version=2),
+        "anm_version": 2,
     }
     kwargs.update(overrides)
     return GameAssembly(**kwargs)
@@ -46,14 +45,13 @@ def test_assembly_is_frozen_struct() -> None:
         a.name = "other"  # type: ignore[misc]
 
 
-def test_executor_fields_default_none() -> None:
-    """VM 执行器/模拟件平移前允许 None 占位, 但字段形状在契约里。"""
+def test_class_components_default_none() -> None:
+    """类形态的装配件未登记时留 None 占位(逐维度装饰器登记)。"""
     asm = _asm()
-    assert asm.scripts.ecl_machine is None
-    assert asm.scripts.ecl_host is None
-    assert asm.scripts.msg_executor is None
+    assert asm.anm_version == 2
     assert asm.world is None
     assert asm.app is None
+    assert asm.ecl_host is None
     assert asm.mods is None
     assert asm.save == SaveSemantics()
 
