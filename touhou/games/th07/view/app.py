@@ -8,16 +8,10 @@ from pathlib import Path
 from ....engine import GameAssembly, RenderBackend, TouhouRegistry, open_archive
 from ....engine.score_store import ScoreStore
 from ..config import Th07Config, load_config, save_config
-from ..replay import (
-    ReplayEntry,
-    ReplayRecorder,
-    StageMark,
-    list_replays,
-    new_replay_path,
-    save_replay,
-)
+from ..replay import ReplayEntry, ReplayRecorder, StageMark, list_replays
 from ..world import Th07World, compose_world
 from .bg3d import StageBg
+from .ending import EndingScene
 from .fx import GameFx
 from .game_scene import GameScene
 from .menu_vms import MenuVmSet
@@ -26,7 +20,8 @@ from .musicroom import MusicRoomScene
 from .option import OptionScene
 from .playerdata import PlayerDataScene
 from .replay import ReplayListScene, ReplayWatchScene
-from .scene import run_scenes
+from .result import ResultScene
+from .scene import Scene, run_scenes
 from .title import MenuMemory, StartRequest, TitleScene
 
 #: 配置落盘位置(原版 th07.cfg 的 JSON 简化版, games/th07/config.py)
@@ -76,8 +71,10 @@ def run_app(
     """开窗口跑完整流程: 标题 → 主菜单 → 难度/机体/装备 → 对局 → 回标题; Quit 退出。
 
     scene 接缝全在这里显式装配: 后续单加新画面 = 新 Scene 子类 + 往
-    submenus/工厂链里挂一项。对局全程录制, 结算时自动存一份到 replay_dir
-    (原版在结算画面选槽存盘, ResultScreen 留待后续单, 先自动存)。
+    submenus/工厂链里挂一项。对局结束链 = GameScene → (6 面结局?EndingScene)
+    → (GameOver 可续关?GameScene 内续关菜单) → ResultScene(结算: 入榜输名 +
+    录像选槽存盘, ResultScreen.cpp RegisterChain type=1) → 回标题; practice
+    局只过录像保存询问(PRACTICE_END→REPLAY_SAVE_PROMPT, ResultScreen.cpp:2603-2616)。
     score_path: 缺省用装配登记的存档名(assembly.save.score_file)。
     backend: 直接注入后端实例(测试用); 缺省按 renderer 名从注册表解析。
     """
@@ -220,32 +217,52 @@ def run_app(
         )
         recorder = ReplayRecorder(world, name=store.last_name)
         fx = GameFx(world, anm_version=assembly.anm_version)
-        if req.practice:
-            # 练习对局回来: 主菜单 INIT 直跳练习选择链落到选面页
-            # (isPracticeMode, MainMenu.cpp:2637-2643)
-            def on_exit() -> TitleScene:
-                return make_title(cursor=_MENU_PRACTICE_START, practice_mode=True)
 
-        else:
-            # 本篇/Extra 回来: 光标停 Start/Extra Start(MainMenu.cpp:2622-2626)
-            def on_exit() -> TitleScene:
-                return make_title(
-                    cursor=_MENU_EXTRA_START if req.difficulty >= 4 else 0
+        def after_game() -> Scene:
+            """对局收尾: 结局在播 → EndingScene; 否则结算画面(practice 只出录像保存询问)。"""
+            if world.ending is not None:
+                # 6 面通关 → 结局播放 → 结算 (Supervisor.cpp:340-351/:376-390)
+                return EndingScene(
+                    world,
+                    anm_version=assembly.anm_version,
+                    music=music,
+                    on_done=lambda _w: after_game(),
                 )
-
-        def on_result(w: Th07World) -> None:
-            store.save(store_path)
-            # 对局结束自动存一份录像(原版结算画面选槽, 留待; SaveReplay 口径)
-            save_replay(recorder.finish(w), new_replay_path(replay_dir))
+            if world.practice:
+                # practice 局: 不入榜不输名, 直进录像保存询问 (PRACTICE_END →
+                # REPLAY_SAVE_PROMPT, ResultScreen.cpp:2603-2616); 出来回主菜单
+                # 练习链选面页(MainMenu.cpp:2637-2643)
+                return ResultScene(
+                    world,
+                    anm_version=assembly.anm_version,
+                    recorder=recorder,
+                    replay_dir=replay_dir,
+                    on_save=lambda: store.save(store_path),
+                    on_exit=lambda: make_title(
+                        cursor=_MENU_PRACTICE_START, practice_mode=True
+                    ),
+                    practice=True,
+                )
+            return ResultScene(
+                world,
+                anm_version=assembly.anm_version,
+                recorder=recorder,
+                replay_dir=replay_dir,
+                on_save=lambda: store.save(store_path),
+                # 本篇/Extra 回来: 光标停 Start/Extra Start(MainMenu.cpp:2622-2626)
+                on_exit=lambda: make_title(
+                    cursor=_MENU_EXTRA_START if req.difficulty >= 4 else 0
+                ),
+            )
 
         return GameScene(
             world,
-            on_exit=on_exit,  # 结算画面 ResultScreen 留待后续单, 现回标题
-            on_result=on_result,
+            on_exit=after_game,
             recorder=recorder,
             fx=fx,
             music=music,
             bg=StageBg(world.archive, anm_version=assembly.anm_version),
+            anm_version=assembly.anm_version,
         )
 
     try:

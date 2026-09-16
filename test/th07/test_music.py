@@ -413,14 +413,11 @@ def test_game_scene_bgm_chain() -> None:
 
 @needs_data
 def test_game_scene_ending_music() -> None:
-    """6 面通关: 结局点起结局曲(Ending.cpp:300-301)再走总结算。"""
-    from touhou.engine import open_archive
+    """6 面通关: GameScene 出结局即 done; 结局曲改由 EndingScene 播(结局单接缝)。"""
     from touhou.games.th07.compose import compose
     from touhou.games.th07.msg import apply_next_level
     from touhou.games.th07.view.game_scene import GameScene
     from touhou.games.th07.world import compose_world
-    from touhou.schemas.archive import load_entry
-    from touhou.schemas.ending import parse_end
 
     rec = _Rec()
     w = compose_world(compose(), character=0, difficulty=1, stage_no=6, seed=42)
@@ -428,11 +425,8 @@ def test_game_scene_ending_music() -> None:
     apply_next_level(w)  # msg NEXT_LEVEL → enter_ending
     assert w.ending is not None
     scene.step(_IDLE)
-    arc = open_archive(DATA, format_name="pbg4")
-    expected = _stem(parse_end(load_entry(arc, "end00.end")).music)
-    assert expected
-    assert ("play", expected) in rec.log
-    assert scene.done  # 结局画面留待: 起播后直接总结算
+    assert scene.done  # 结局画面(EndingScene)接管, 结局曲在其 music_events 链上
+    assert ("play", "th07_14") not in rec.log  # GameScene 不再播结局曲
 
 
 # ---- needs_data: 真实取轨 ----

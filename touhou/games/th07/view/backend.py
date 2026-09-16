@@ -201,6 +201,14 @@ class PygameBackend(RenderBackend):
             self._clock.tick(60)
 
     def _blit_sprite(self, frame: pygame.Surface, spr, dx: int, dy: int) -> None:
+        if spr.image == "misc:overlay":
+            # 全屏单色覆盖(程序化, 结局 FadingEffect): color+alpha 由快照给
+            veil = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
+            veil.fill((*spr.color, spr.alpha))
+            frame.blit(
+                veil, (int(spr.x) + dx - WIN_W // 2, int(spr.y) + dy - WIN_H // 2)
+            )
+            return
         if spr.image == "misc:hitpoint":
             # focus 判定点: 红环白点(程序化, 无贴图)
             x, y = int(spr.x) + dx, int(spr.y) + dy

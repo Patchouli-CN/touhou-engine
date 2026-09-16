@@ -95,13 +95,12 @@ def test_runner_quit_on_window_close() -> None:
 
 @needs_data
 def test_game_scene_tick_pause_and_result() -> None:
-    """真一面: step 推进世界; Esc 暂停冻结; result 出现即 done + on_result。"""
+    """真一面: step 推进世界; Esc 暂停冻结; result 出现即 done(结算画面在装配处)。"""
     from touhou.games.th07.compose import compose
-    from touhou.games.th07.world import Th07World, compose_world
+    from touhou.games.th07.world import compose_world
 
     world = compose_world(compose(), seed=42)
-    results: list[Th07World] = []
-    scene = GameScene(world, on_exit=lambda: None, on_result=results.append)
+    scene = GameScene(world, on_exit=lambda: None)
     frame0 = scene.snapshot().frame
     scene.step(_IDLE)
     assert scene.snapshot().frame == frame0 + 1
@@ -113,11 +112,10 @@ def test_game_scene_tick_pause_and_result() -> None:
     assert scene.snapshot() is snap
     scene.step(InputFrame(pressed=frozenset({Button.PAUSE})))
     assert not scene.paused
-    # 结算出炉 → done + 回调 + 留给装配处的出口
+    # 结算出炉 → done, 留给装配处的出口
     world.result = {"score": 1}
     scene.step(_IDLE)
     assert scene.done
-    assert results == [world]
     assert scene.next_scene() is None
 
 
