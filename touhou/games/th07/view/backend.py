@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import io
 import math
+import os
 
 import numpy as np
 import pygame
 
-from ....engine import Event, InputFrame, RenderBackend, SceneSnapshot
+from ....engine import Event, InputFrame, RenderBackend, SceneSnapshot, TextDraw
 from ....engine.input import Button
 from ....engine.registry import TouhouRegistry
 from ....schemas.archive import Archive, load_entry
@@ -33,7 +34,11 @@ Z_GUI = 100.0  # z>=此值 = Gui 层: 不裁剪不振屏(边框/HUD/横幅/标�
 # C++ Gui 绘制时 viewport 是 arcade 区, GameManager.cpp:147-152)
 Z_CLIP_GUI = 90.0
 
-#: 默认键位(th07 原作: Z=射击 X=炸弹 Shift=低速 Ctrl=快进 Esc=暂停)
+#: Home 截图目录(GameWindow.cpp:107-119: snapshot/th%03d.bmp 首个空位)
+_SNAPSHOT_DIR = "snapshot"
+
+#: 默认键位(th07 原作: Z=射击 X=炸弹 Shift=低速 Ctrl=快进 Esc=暂停;
+#: Q/D/S/R/Home/Enter = 原始功能键, Controller.cpp:394-406)
 _KEYMAP: dict[int, Button] = {
     pygame.K_z: Button.SHOT,
     pygame.K_x: Button.BOMB,
@@ -46,6 +51,12 @@ _KEYMAP: dict[int, Button] = {
     pygame.K_LCTRL: Button.SKIP,
     pygame.K_RCTRL: Button.SKIP,
     pygame.K_ESCAPE: Button.PAUSE,
+    pygame.K_q: Button.Q,
+    pygame.K_d: Button.D,
+    pygame.K_s: Button.S,
+    pygame.K_r: Button.RESET,
+    pygame.K_HOME: Button.HOME,
+    pygame.K_RETURN: Button.ENTER,
 }
 
 _TRANSFORM_CAP = 2048  # 变换缓存上限(满即清, 弹幕量化键复用率高)
@@ -85,6 +96,9 @@ class PygameBackend(RenderBackend):
         self._veils: dict[int, pygame.Surface] = {}  # 符卡黑罩 alpha 档缓存
         self._powerbar: pygame.Surface | None = None  # Power 渐变条母版(128 宽)
         self._bossbar: pygame.Surface | None = None  # boss 血条母版(320x4)
+        self._bosssegs: dict[
+            tuple[int, int, int], pygame.Surface
+        ] = {}  # 彩段母版(按色)
         self._bossmarkers: dict[int, pygame.Surface] = {}  # 血条星标(按个数缓存)
         self._dlg_bg_full: pygame.Surface | None = None  # 对话框渐变底母版
         self._dlg_bgs: dict[tuple[int, int], pygame.Surface] = {}  # 按 (w,h) 缓存
@@ -132,7 +146,19 @@ class PygameBackend(RenderBackend):
         if inp is None:
             return None
         self._render(snapshot)
+        if Button.HOME in inp.pressed:
+            self._save_snapshot()  # GameWindow.cpp:107-119 (Present 里渲染后判定)
         return inp
+
+    def _save_snapshot(self) -> None:
+        """Home 截图: snapshot/th%03d.bmp 的首个空位, 存 640x480 帧面。"""
+        assert self._frame_surf is not None
+        os.makedirs(_SNAPSHOT_DIR, exist_ok=True)  # _mkdir("snapshot")
+        for i in range(1000):
+            path = os.path.join(_SNAPSHOT_DIR, f"th{i:03d}.bmp")
+            if not os.path.exists(path):
+                pygame.image.save(self._frame_surf, path)
+                return
 
     def play_sounds(self, ids: list[int]) -> None:
         if not self._mixer_ok or not self.sounds_enabled:
@@ -178,18 +204,22 @@ class PygameBackend(RenderBackend):
                 # 3D 背景(世界空间, 随震屏偏移; z 序最底)
                 frame.blit(self._bg, (GAME_X + sdx, GAME_Y + sdy))
         gui_layer = False  # z 有序: 一过 Z_GUI 即关裁剪/停震屏偏移(Gui 层)
-        for spr in sorted(snapshot.sprites, key=lambda s: s.z):
-            if chrome and not gui_layer and spr.z >= Z_GUI:
+        # sprite/text 统一按 z 排序(text 缺省 z=1e9 恒在 sprite 上, 保旧行为;
+        # 低 z 文本可被覆盖层压住, 如结局 FadingEffect 淡色覆盖, Ending.cpp:99-165)
+        for d in sorted((*snapshot.sprites, *snapshot.texts), key=lambda d: d.z):
+            if isinstance(d, TextDraw):
+                frame.set_clip(None)  # 文本从不裁剪(旧行为)
+                self._blit_text(frame, d.text, d.x, d.y, d.size, d.rgba)
+                continue
+            if chrome and not gui_layer and d.z >= Z_GUI:
                 frame.set_clip(None)
                 gui_layer = True
-            if gui_layer or (chrome and spr.z >= Z_CLIP_GUI):
+            if gui_layer or (chrome and d.z >= Z_CLIP_GUI):
                 # Gui 层全窗口直画; 游戏区内 Gui 件(Z_CLIP_GUI 带)留裁剪不振屏
-                self._blit_sprite(frame, spr, 0, 0)
+                self._blit_sprite(frame, d, 0, 0)
             else:
-                self._blit_sprite(frame, spr, sdx, sdy)
+                self._blit_sprite(frame, d, sdx, sdy)
         frame.set_clip(None)
-        for text in snapshot.texts:
-            self._blit_text(frame, text.text, text.x, text.y, text.size, text.rgba)
         if self._clock is not None:
             self._blit_text(
                 frame,
@@ -270,6 +300,30 @@ class PygameBackend(RenderBackend):
                         pygame.draw.line(bar, (r, g, b), (0, by), (319, by))
                     self._bossbar = bar
                 img = self._bossbar.subsurface((0, 0, min(w, 320), 4))
+                if spr.alpha < 255:
+                    img = img.copy()
+                    img.set_alpha(spr.alpha)
+                frame.blit(img, (int(spr.x) + dx, int(spr.y) + dy))
+            return
+        if spr.image == "misc:bossseg":
+            # 血条符卡彩段(程序化, Gui.cpp:1847-1869): 顶=spr.color,
+            # 底=各通道 >>2(color>>2 & 0x3f3f3f); x/y 左上, scale_x=宽
+            w = int(spr.scale_x)
+            if w > 0:
+                seg = self._bosssegs.get(spr.color)
+                if seg is None:
+                    r, g, b = spr.color
+                    seg = pygame.Surface((320, 4), pygame.SRCALPHA)
+                    for by in range(4):
+                        t = by / 3
+                        row = (
+                            int(r * (1 - t) + (r >> 2) * t),
+                            int(g * (1 - t) + (g >> 2) * t),
+                            int(b * (1 - t) + (b >> 2) * t),
+                        )
+                        pygame.draw.line(seg, row, (0, by), (319, by))
+                    self._bosssegs[spr.color] = seg
+                img = seg.subsurface((0, 0, min(w, 320), 4))
                 if spr.alpha < 255:
                     img = img.copy()
                     img.set_alpha(spr.alpha)

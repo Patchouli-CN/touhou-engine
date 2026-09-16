@@ -52,6 +52,7 @@ from ...schemas.ecl import (
     SetLaserOffsets,
     SetLaserPosRel,
     SetLaserStartLen,
+    SetLife,
     SetLifeCallback,
     SetNumBossLifeMarkers,
     SetShootInterval,
@@ -187,7 +188,9 @@ class Th07EclHost(EclHost):
         # 消息系统(world 装入): msg_vm 为 None 时维持旧行为(仅记录, 不停轴)
         self.msg_vm: MsgExecutor | None = None
         self.msg_character = 0  # C g_GameManager.character (0=灵梦 1=魔理沙 2=咲夜)
-        self.boss_health: tuple[int, int, int, int] = (0, 0, 0, 0)
+        self.boss_health: list[tuple[int, int, int]] = [(0, 0, 0)] * 8
+        # 血条彩段槽 (Gui.hpp:258-260 bossHealth/bossColor[8]; 槽=(current, max, color) 原值,
+        # 归一化在 view 侧按 boss.max_life 算, EclManager.cpp:1704-1712)
         self.boss_life_markers = 0
         self.framerate_multiplier = 1.0  # ex10/11 游戏速度(world 每帧同步给各 VM)
         # ---- 世界接线(world 赋值; None = 未接) ----
@@ -806,6 +809,10 @@ class Th07EclHost(EclHost):
             ex.death_anm = (instr.a, instr.b, instr.c)
         elif isinstance(instr, SetVmAutoRotate):
             ex.primary_vm_auto_rotate = instr.value
+        elif isinstance(instr, SetLife):
+            # boss0 换阶段: 血条彩段槽清零 (EclManager.cpp:1695-1703)
+            if e.is_boss and ex.boss_id == 0:
+                self.boss_health = [(0, 0, 0)] * 8
         # 其余(SetVmInterrupt/SetPrimaryVmInterrupt/SetDrawGroup/特效/粒子等):
         # 渲染侧语义, 逻辑层不接
 
@@ -886,12 +893,13 @@ class Th07EclHost(EclHost):
             if self.on_end_spellcard is not None:
                 self.on_end_spellcard(m)
         elif isinstance(instr, SetBossHealth):
-            self.boss_health = (
-                m.ival(instr.idx),
-                m.ival(instr.current),
-                m.ival(instr.max),
-                m.ival(instr.color),
-            )
+            idx = m.ival(instr.idx)
+            if 0 <= idx < 8:  # 显式判界(C++ 靠 isBoss<4 链兜底)
+                self.boss_health[idx] = (
+                    m.ival(instr.current),
+                    m.ival(instr.max),
+                    m.ival(instr.color),
+                )
         elif isinstance(instr, SetNumBossLifeMarkers):
             self.boss_life_markers = m.ival(instr.count)
         elif isinstance(instr, FreezeEclDuringBomb):
@@ -964,7 +972,7 @@ class Th07EclHost(EclHost):
         self.bosses = [None] * 8
         self.global_ints = [0] * 4
         self.global_floats = [0.0] * 4
-        self.boss_health = (0, 0, 0, 0)
+        self.boss_health = [(0, 0, 0)] * 8
         self.boss_life_markers = 0
         self.last_msg_id = -1
 

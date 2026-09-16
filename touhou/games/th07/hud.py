@@ -48,7 +48,6 @@ _DIM_LABEL = (64, 16)
 _DIM_STAR = (16, 16)
 
 _ASCII_STEP = 14.0  # 16x16 大字步进 fontSpacing (AsciiManager.cpp:126/284)
-_GAUGE_POS = (32.0, 464.0)  # 计量条稳态左上 (ascii script 4 interrupt 1 终值)
 _GAUGE_DIGIT = 132  # 8x12 数字 sprite 基址 (AnmIdx.hpp:161)
 
 # 樱点数字颜色 (AsciiManager.cpp:1153-1171/1204-1206/1256-1263)
@@ -128,6 +127,7 @@ def _gauge_digits(
     *,
     step: float = 7.0,
     scale: float = 1.0,
+    alpha: int = 255,
 ) -> None:
     """樱点 8x12 数字(中心锚, 前导零省略微, 个位恒画; AsciiManager.cpp:1176-1190)。"""
     divisor = 10 ** (slots - 1)
@@ -147,6 +147,7 @@ def _gauge_digits(
                     scale_x=scale,
                     scale_y=scale,
                     color=rgb,
+                    alpha=alpha,
                 )
             )
         x += step
@@ -213,12 +214,23 @@ def _emit_stats(out: list[SpriteDraw], world: Th07World, bank: AnmBank | None) -
     )
 
 
-def _emit_cherry(out: list[SpriteDraw], world: Th07World, bank: AnmBank | None) -> None:
-    """樱点计量条: 底图 + cherry/max 下行 + cherryPlus 上行 (AsciiManager.cpp:1140-1295)。"""
+def _draw_cherry(
+    out: list[SpriteDraw],
+    world: Th07World,
+    bank: AnmBank | None,
+    gx: float,
+    gy: float,
+    alpha: int,
+) -> None:
+    """樱点计量条绘制: 底图 + cherry/max 下行 + cherryPlus 上行 (AsciiManager.cpp:1140-1295)。
+
+    gx/gy = 计量条左上(脚本 4 的 vm.pos, anchor3); alpha = 整条随计量条淡隐。
+    """
     g = world.th07
-    gx, gy = _GAUGE_POS
     w, h = _dims(bank, 142, _DIMS[142])
-    out.append(SpriteDraw(f"{_ASCII}:142", gx + w / 2, gy + h / 2, z=Z_GAUGE))
+    out.append(
+        SpriteDraw(f"{_ASCII}:142", gx + w / 2, gy + h / 2, z=Z_GAUGE, alpha=alpha)
+    )
     cherry = max(0, g.cherry - g.cherry_start)
     if g.cherry >= g.cherry_max:
         rgb = _CHERRY_AT_MAX
@@ -226,7 +238,7 @@ def _emit_cherry(out: list[SpriteDraw], world: Th07World, bank: AnmBank | None) 
         rgb = _CHERRY_HIGH
     else:
         rgb = _CHERRY_NORMAL
-    _gauge_digits(out, gx + 46.0, gy + 11.0, cherry, 6, rgb)
+    _gauge_digits(out, gx + 46.0, gy + 11.0, cherry, 6, rgb, alpha=alpha)
     cherry_max = max(0, g.cherry_max - g.cherry_start)
     # 下行 max 组: 起点 = 6 槽步进完再 +9; ≥百万扩 7 槽 (AsciiManager.cpp:1200-1223)
     _gauge_digits(
@@ -236,6 +248,7 @@ def _emit_cherry(out: list[SpriteDraw], world: Th07World, bank: AnmBank | None) 
         cherry_max,
         7 if cherry_max >= 1000000 else 6,
         _CHERRY_MAX_RGB,
+        alpha=alpha,
     )
     plus = max(0, g.cherry_plus - g.cherry_start)
     border = world.player.border.has_border
@@ -245,9 +258,19 @@ def _emit_cherry(out: list[SpriteDraw], world: Th07World, bank: AnmBank | None) 
         if tri >= 2000:
             tri = 4000 - tri
         gb = min(255, plus * 192 // 50000 + tri * 64 // 2000)
-        _gauge_digits(out, gx + 55.0, gy, plus, 5, (255, gb, gb), step=10.0, scale=1.41)
+        _gauge_digits(
+            out,
+            gx + 55.0,
+            gy,
+            plus,
+            5,
+            (255, gb, gb),
+            step=10.0,
+            scale=1.41,
+            alpha=alpha,
+        )
     else:
-        _gauge_digits(out, gx + 53.0, gy + 2.0, plus, 5, _CHERRY_PLUS_RGB)
+        _gauge_digits(out, gx + 53.0, gy + 2.0, plus, 5, _CHERRY_PLUS_RGB, alpha=alpha)
     if border == BorderState.ACTIVE:
         # 呼吸标记 sprite 143 (script 5 的 0.8↔1.2/60 帧, 手工等效旧 hud_view)
         t = world.frame % 60
@@ -265,8 +288,58 @@ def _emit_cherry(out: list[SpriteDraw], world: Th07World, bank: AnmBank | None) 
                 z=Z_GAUGE_NUM,
                 scale_x=s,
                 scale_y=s,
+                alpha=alpha,
             )
         )
+
+
+_SCR_GAUGE = 4  # ANM_SCRIPT_ASCII_CHERRY_GAUGE (AnmIdx.hpp:150)
+_GAUGE_FALLBACK = (32.0, 449.0)  # 无数据兜底落点(脚本 4 interrupt 1 终值, 实测)
+
+
+class CherryGauge:
+    """樱点计量条显隐: ascii 脚本 4 VM + 自机压底淡出状态机 (Player.cpp:2196-2221)。
+
+    开局 interrupt 1 左缘滑入 (Player.cpp:2476, 换关/重开本面不重发);
+    自机在底部左侧(y>=400 且 x<160)interrupt 2 淡出至 alpha 64,
+    离开 interrupt 3 淡回。无 anm 数据时兜底静态绘制。
+    """
+
+    def __init__(self, rng: Rng) -> None:
+        self._rng = rng
+        self._vm: AnmMachine | None = None
+        self._fade = 1  # uiFadeState (AsciiManager.hpp:122-131)
+
+    def step(
+        self, world: Th07World, out: list[SpriteDraw], bank: AnmBank | None
+    ) -> None:
+        """每帧: 淡出状态机 + VM 推进 + 按 VM 落点/透明度绘制。"""
+        vm: AnmMachine | None = self._vm
+        if bank is not None and (vm is None or not vm.alive):
+            vm = AnmMachine(self._rng)
+            vm.start(bank.scripts.get(_SCR_GAUGE))
+            if vm.alive:
+                vm.pending_interrupt = 1  # 开局滑入 (Player.cpp:2476)
+                self._vm = vm
+        # UpdateUI 的淡出判定 (Player.cpp:2201-2221); 与 VM 无关独立记账
+        p = world.player
+        intr: int | None = None
+        if p.pos.y >= 400.0:
+            if self._fade != 2 and p.pos.x < 160.0:
+                intr, self._fade = 2, 2
+            elif self._fade == 2 and p.pos.x > 160.0:
+                intr, self._fade = 3, 3
+        elif self._fade == 2:
+            intr, self._fade = 3, 3
+        if vm is None or not vm.alive:
+            _draw_cherry(out, world, bank, *_GAUGE_FALLBACK, 255)  # 无数据兜底
+            return
+        if intr is not None:
+            vm.pending_interrupt = intr
+        vm.execute()  # UpdateScripts (AsciiManager.hpp:108)
+        if not vm.visible:
+            return
+        _draw_cherry(out, world, bank, vm.pos[0], vm.pos[1], vm.color[3])
 
 
 def emit_hud(
@@ -274,11 +347,14 @@ def emit_hud(
     out: list[SpriteDraw],
     bank_of: Callable[[str], AnmBank | None],
 ) -> None:
-    """对局 HUD 全件: 边框/面板 + 右栏数值 + 樱点底栏(每帧全量, 原版重画门控不移植)。"""
+    """对局 HUD 静态件: 边框/面板 + 右栏数值(每帧全量, 原版重画门控不移植)。
+
+    樱点计量条(CherryGauge)/boss 血条(BossBar)/boss▼(BossMarker)是状态件,
+    由 snapshot 生产侧持实例驱动。
+    """
     front = bank_of(_FRONT)
     _emit_chrome(out, front)
     _emit_stats(out, world, front)
-    _emit_cherry(out, world, bank_of(_ASCII))
 
 
 # ---- boss 血条 (Gui.cpp:1225-1292 状态机 + :1835-1917 绘制) ----
@@ -382,6 +458,30 @@ class BossBar:
                 alpha=self._alpha,
             )
         )
+        # 符卡彩段 (Gui.cpp:1847-1869): host.boss_health 槽=(current, max, color)
+        # 原值, 按 boss max_life 归一化 (EclManager.cpp:1704-1712)
+        host = world.host
+        if host is not None and boss is not None and boss.max_life > 0:
+            ml = float(boss.max_life)
+            for cur, mx, color in host.boss_health:
+                if mx == 0:
+                    continue  # bossHealth[j]==0 跳过 (:1850)
+                eased_j = cur / ml
+                if eased_j >= self._eased:
+                    continue  # 段起点已出条外 (:1854)
+                end = min(mx / ml, self._eased)  # 段尾不超出当前条长 (:1858-1861)
+                sprites.append(
+                    SpriteDraw(
+                        "misc:bossseg",
+                        _BAR_X + eased_j * _BAR_W,
+                        _BAR_Y,
+                        z=Z_BOSS,
+                        scale_x=(end - eased_j) * _BAR_W,
+                        scale_y=4.0,
+                        alpha=self._alpha,
+                        color=((color >> 16) & 255, (color >> 8) & 255, color & 255),
+                    )
+                )
         if vm is not None and vm.visible and vm.active_sprite_idx >= 0:
             bank = bank_of(_FRONT)
             w = h = 0.0
@@ -408,7 +508,6 @@ class BossBar:
                 )
             )
         # 残机星标 (Gui.cpp:1873-1887; scale_x 载个数, 后端程序化)
-        host = world.host
         markers = host.boss_life_markers if host is not None else 0
         if markers > 0:
             sprites.append(
@@ -435,3 +534,70 @@ class BossBar:
                     rgba=(*_TIME_COLORS[ci], self._alpha),
                 )
             )
+
+
+# ---- boss 底部▼位置标记 (EnemyManager.cpp:1064-1089 → AsciiManager.cpp:331-361) ----
+_SCR_BOSS_MARKER = 6  # ANM_SCRIPT_ASCII_BOSS_MARKER (AnmIdx.hpp:152)
+_MARKER_Y = 472.0  # 窗口 y (EnemyManager.cpp:1082)
+Z_MARKER = 120.0  # 与弹字同层(AsciiManager OnDrawPopups 一并绘制)
+
+
+class BossMarker:
+    """boss 底部▼位置标记: ascii 脚本 6 VM 管显隐, 每帧跟 boss 横坐标。
+
+    SET_BOSS 建档 interrupt 1 淡入 / 撤档 interrupt 2 淡出
+    (EclManager.cpp:1509-1527); hasNoCollision 或 x 出 [56,392] 不画;
+    距自机 64px 内变淡, boss 受击帧蓝化 (AsciiManager.cpp:336-352)。
+    无 anm 数据静默。
+    """
+
+    def __init__(self, rng: Rng) -> None:
+        self._rng = rng
+        self._vm: AnmMachine | None = None
+        self._present = False
+        self._wx = -999.0  # 标记窗口 x(C++ pos 由 EnemyManager 每帧写, 撤档后留最后值)
+
+    def step(
+        self, world: Th07World, out: list[SpriteDraw], bank: AnmBank | None
+    ) -> None:
+        """每帧: 显隐边沿 + VM 推进 + 按 boss/自机位置出绘制项。"""
+        if bank is None:
+            return
+        vm = self._vm
+        if vm is None or not vm.alive:
+            vm = AnmMachine(self._rng)
+            vm.start(bank.scripts.get(_SCR_BOSS_MARKER))
+            if not vm.alive:
+                return  # 下帧重试(同 BossBar)
+            self._vm = vm
+        e = world.boss_enemy
+        present = e is not None and e.active
+        if present != self._present:
+            self._present = present
+            vm.pending_interrupt = 1 if present else 2  # EclManager.cpp:1516/:1526
+        if present and e is not None:
+            # 游戏区 x → 窗口 x (:1076); hasNoCollision → -999 出窗 (:1077-1081)
+            self._wx = -999.0 if e.has_no_collision else 32.0 + e.pos2[0]
+        vm.execute()  # UpdateScripts (AsciiManager.hpp:110)
+        if not vm.visible or vm.active_sprite_idx < 0:
+            return
+        wx = self._wx
+        if not 56.0 <= wx <= 392.0:
+            return  # 范围外不画 (AsciiManager.cpp:333-334)
+        if e is not None and world.frame_boss_damage:
+            rgb, alpha = (64, 64, 255), 128  # 受击帧蓝化 (:347-352)
+        else:
+            dist = abs(wx - 32.0 - world.player.pos.x)
+            # 距自机 64px 内线性变淡 48→176 (:336-345)
+            alpha = min(176, int(dist * 128.0 / 64.0 + 48.0)) if dist < 64.0 else 176
+            rgb = (255, 255, 255)
+        out.append(
+            SpriteDraw(
+                f"{_ASCII}:{vm.active_sprite_idx}",
+                wx,
+                _MARKER_Y,
+                z=Z_MARKER,
+                alpha=alpha,
+                color=rgb,
+            )
+        )

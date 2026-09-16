@@ -295,3 +295,48 @@ def test_run_app_musicroom_chain(tmp_path) -> None:
     assert backend.sounds.count(12) == 6
     assert backend.sounds.count(10) == 2
     assert 11 not in backend.sounds
+
+
+@needs_data
+def test_pause_menu_q_quit() -> None:
+    """暂停中 Q: 无确认直退, 20 帧离场后 done + on_quit 出口 (AsciiManager.cpp:462-475)。"""
+    from touhou.games.th07.compose import compose
+    from touhou.games.th07.world import compose_world
+
+    def press(b: Button) -> InputFrame:
+        return InputFrame(held=frozenset({b}), pressed=frozenset({b}))
+
+    world = compose_world(compose(), seed=42)
+    quit_scene = _FakeScene(0)
+    scene = GameScene(world, on_exit=lambda: None, on_quit=lambda: quit_scene)
+    scene.step(press(Button.PAUSE))
+    assert scene.paused
+    scene.step(press(Button.Q))
+    assert scene.drain_sounds() == [10]  # SOUND_SELECT (:465)
+    for _ in range(25):
+        scene.step(_IDLE)
+    assert scene.done
+    assert scene.next_scene() is quit_scene
+    assert world.result is None  # 直退不进结算
+
+
+@needs_data
+def test_pause_menu_r_restart() -> None:
+    """暂停中 R: 无确认重开, 20 帧离场后走 on_restart (AsciiManager.cpp:476-489/:766-776)。"""
+    from touhou.games.th07.compose import compose
+    from touhou.games.th07.world import compose_world
+
+    def press(b: Button) -> InputFrame:
+        return InputFrame(held=frozenset({b}), pressed=frozenset({b}))
+
+    world = compose_world(compose(), seed=42)
+    restart_scene = _FakeScene(0)
+    scene = GameScene(world, on_exit=lambda: None, on_restart=lambda: restart_scene)
+    scene.step(press(Button.PAUSE))
+    scene.step(press(Button.RESET))
+    assert scene.drain_sounds() == [10]  # SOUND_SELECT (:479)
+    for _ in range(25):
+        scene.step(_IDLE)
+    assert scene.done
+    assert scene.next_scene() is restart_scene
+    assert world.result is None

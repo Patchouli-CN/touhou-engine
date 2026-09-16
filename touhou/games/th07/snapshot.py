@@ -22,7 +22,7 @@ from ...schemas.anm import parse_anm
 from ...schemas.archive import load_entry
 from .data import bullet_active_sprite_idx
 from .ecl_state import EnemyExtras
-from .hud import BossBar, emit_hud
+from .hud import BossBar, BossMarker, CherryGauge, emit_hud
 from .player import OptionState
 
 if TYPE_CHECKING:
@@ -88,6 +88,8 @@ class Th07SnapshotSystem(System["Th07World"]):
         self._player_script = -1  # 当前脚本(-1=未建档, 下帧进 idle)
         self._prev_move_sign = 0  # 上帧横移方向(侧移脚本边沿判定用)
         self._boss_bar = BossBar(self._rng)  # boss 血条(框 VM + 缓动状态)
+        self._boss_marker = BossMarker(self._rng)  # boss 底部▼位置标记
+        self._cherry_gauge = CherryGauge(self._rng)  # 樱点计量条(滑入/淡出 VM)
 
     # ---- anm 数据(惰性; 无 archive → 全 None → 语义键兜底) ----
     def _bank(self, world: Th07World, name: str) -> AnmBank | None:
@@ -458,9 +460,11 @@ class Th07SnapshotSystem(System["Th07World"]):
                 SpriteDraw("misc:hitpoint", _gx(p.pos.x), _gy(p.pos.y), z=51.0)
             )
 
-    # ---- HUD(贴图面板, hud.py) + boss 条/结算/终局文本 ----
+    # ---- HUD(贴图面板, hud.py) + boss 条/▼标记/计量条/结算/终局文本 ----
     def _emit_hud(self, world: Th07World, ctx: FrameContext) -> None:
         emit_hud(world, ctx.draw.sprites, lambda name: self._bank(world, name))
+        # 樱点计量条: 脚本 4 VM 滑入/自机压底淡出 (Player.cpp:2196-2221)
+        self._cherry_gauge.step(world, ctx.draw.sprites, self._bank(world, "ascii.anm"))
         # boss 血条: SET_BOSS 建档即亮(道中 boss 同), 对话中不画 (Gui.cpp:1835-1917)
         self._boss_bar.step(
             world,
@@ -468,6 +472,8 @@ class Th07SnapshotSystem(System["Th07World"]):
             ctx.draw.texts,
             lambda name: self._bank(world, name),
         )
+        # boss 底部▼位置标记 (EnemyManager.cpp:1064-1089)
+        self._boss_marker.step(world, ctx.draw.sprites, self._bank(world, "ascii.anm"))
         texts = ctx.draw.texts
         self._emit_stage_results(world, ctx)
         if world.game_over:

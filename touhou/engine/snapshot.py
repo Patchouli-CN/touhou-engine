@@ -27,13 +27,18 @@ class SpriteDraw(msgspec.Struct, frozen=True):
 
 
 class TextDraw(msgspec.Struct, frozen=True):
-    """一段文本绘制项。"""
+    """一段文本绘制项。
+
+    z 参与和 sprite 的统一排序; 缺省 1e9 = 恒在 sprite 之上(旧行为),
+    需要被覆盖层压住的文本显式给低 z(如结局淡色覆盖层, FadingEffect)。
+    """
 
     text: str
     x: float
     y: float
     size: int = 16
     rgba: tuple[int, int, int, int] = (255, 255, 255, 255)
+    z: float = 1e9
 
 
 class EffectDraw(msgspec.Struct, frozen=True):

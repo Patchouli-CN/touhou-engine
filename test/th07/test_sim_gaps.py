@@ -223,3 +223,28 @@ def test_stage_results_life_count_penalty() -> None:
         r = w.stage_results
         assert r is not None
         assert r.total == expect and r.penalty_line == line
+
+
+# ---- CHERRY 道具未满樱红字弹分 (ItemManager.cpp:437-443) ----
+
+
+def test_cherry_item_below_max_red_popup() -> None:
+    """樱点道具未满 CherryMax: 弹红字 1000+100×符卡捕获数(不加总分)。"""
+    w = Th07World()
+    g = w.th07
+    g.cherry, g.cherry_max = 0, 200000
+    g.spell_cards_captured = 3
+    _collect(w, ItemKind.CHERRY)
+    assert w.frame_popups == [(100.0, 200.0, 1300, 0xFFFF4040, 1)]
+    assert g.cherry_plus == 1300  # 樱点入账同值 (:441-442)
+
+
+def test_cherry_item_at_max_no_red_popup() -> None:
+    """满樱: 弹分数(黄/白)不弹红字。"""
+    w = Th07World()
+    g = w.th07
+    g.cherry = g.cherry_max = 200000
+    _collect(w, ItemKind.CHERRY)  # y=200 在 POC 线下 → 白字 50000-(200-poc)*100
+    assert w.frame_popups
+    assert all(color != 0xFFFF4040 for _, _, _, color, _ in w.frame_popups)
+    assert w.globals.score > 0

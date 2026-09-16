@@ -143,6 +143,8 @@ def run_app(
             # Player Data 是独立 chain(RegisterChain type=0, Supervisor.cpp:233),
             # 返回重建主菜单, 光标停 Player Data(MainMenu.cpp:2627-2628)
             on_exit=lambda: make_title(cursor=_MENU_RESULT),
+            # Hard 页作弊码全解锁后落盘(C++ 在进程退出时写 score.dat)
+            on_cheat=lambda: store.save(store_path),
         )
 
     def make_musicroom(title: TitleScene) -> MusicRoomScene:
@@ -224,6 +226,24 @@ def run_app(
         recorder = ReplayRecorder(world, name=store.last_name)
         fx = GameFx(world, anm_version=assembly.anm_version)
 
+        def restart_game() -> Scene:
+            """暂停菜单 R: RESTART_FROM_BEGINNING (Supervisor.cpp:281-297)。
+
+            通常难度(!practice 且 d<4)回一面全量重开, practice/Ex/Ph 重开本面
+            (同样全量重置); retryCount 入账 (GameManager.cpp:652-659)。
+            """
+            store.plst["retry_count"] += 1
+            store.save(store_path)
+            stage = req.stage_no if (req.practice or req.difficulty >= 4) else 1
+            return make_game(
+                StartRequest(
+                    character=req.character,
+                    difficulty=req.difficulty,
+                    stage_no=stage,
+                    practice=req.practice,
+                )
+            )
+
         def after_game() -> Scene:
             """对局收尾: 结局在播 → EndingScene; 否则结算画面(practice 只出录像保存询问)。"""
             if world.ending is not None:
@@ -267,6 +287,8 @@ def run_app(
             # 暂停菜单 Return to Title: 弃局直回主菜单, 不进结算不入榜
             # (SUPERVISOR_STATE_MAINMENU, AsciiManager.cpp:755-759)
             on_quit=lambda: make_title(cursor=0),
+            # 暂停菜单 R: 全量重开(RESTART_FROM_BEGINNING, 不回结算)
+            on_restart=restart_game,
             recorder=recorder,
             fx=fx,
             music=music,

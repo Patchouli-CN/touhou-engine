@@ -20,8 +20,9 @@ from .scene import Scene
 class GameScene(Scene):
     """一局对局: Esc 暂停菜单; GameOver 可续关时冻结开续关菜单。
 
-    暂停 = PauseMenu 子态(世界冻结不 tick; Resume 继续, Return to Title 经
-    on_quit 直回标题不进结算, AsciiManager.cpp:755-759); 续关 = RetryMenu
+    暂停 = PauseMenu 子态(世界冻结不 tick; Resume 继续, Return to Title/Q 经
+    on_quit 直回标题不进结算, AsciiManager.cpp:755-759; R 经 on_restart 全量
+    重开, Supervisor.cpp:281-297 RESTART_FROM_BEGINNING); 续关 = RetryMenu
     子态(世界冻结不重建); 结局/结算出炉即结束, 后续画面(结局/结算/标题)由
     装配处链。recorder 注入即录制(ReplayManager::OnUpdate 每帧一记,
     ReplayManager.cpp:33-77): 每个喂给 tick 的 InputFrame 录一码, 过面自动打
@@ -38,6 +39,7 @@ class GameScene(Scene):
         *,
         on_exit: Callable[[], Scene | None],
         on_quit: Callable[[], Scene | None] | None = None,
+        on_restart: Callable[[], Scene | None] | None = None,
         recorder: ReplayRecorder | None = None,
         fx: GameFx | None = None,
         music: BgmPlayer | None = None,
@@ -49,6 +51,7 @@ class GameScene(Scene):
         self.world = world
         self._on_exit = on_exit
         self._on_quit = on_quit
+        self._on_restart = on_restart
         self._recorder = recorder
         self._fx = fx
         self._music = music
@@ -75,6 +78,7 @@ class GameScene(Scene):
         self._pause: PauseMenu | None = None  # 暂停菜单子态(冻结中)
         self._quit = False  # 暂停菜单选 Return to Title(弃局回标题不进结算)
         self._retry: RetryMenu | None = None  # 续关菜单子态(冻结中)
+        self._restart = False  # 暂停菜单 R 重开(RESTART_FROM_BEGINNING)
 
     def _merge_fx(self) -> None:
         """特效层产出合进本帧快照(frozen Struct 重建, 原快照不动)。"""
@@ -172,9 +176,15 @@ class GameScene(Scene):
             self._pause = None
             self.paused = False
         elif pause.choice == "quit":
-            # Return to Title: 弃局直回标题, 不进结算 (:755-759)
+            # Return to Title / Q: 弃局直回标题, 不进结算 (:755-759/:462-475)
             self._pause = None
             self._quit = True
+            self.done = True
+        elif pause.choice == "restart":
+            # R: 重开(AsciiManager.cpp:766-776 → RESTART_FROM_BEGINNING);
+            # 全量重建由装配处 on_restart 接缝承担(世界/scene 层全重开)
+            self._pause = None
+            self._restart = True
             self.done = True
 
     def on_exit(self) -> None:
@@ -211,6 +221,8 @@ class GameScene(Scene):
         return out
 
     def next_scene(self) -> Scene | None:
+        if self._restart and self._on_restart is not None:
+            return self._on_restart()  # R 重开(RESTART_FROM_BEGINNING)
         if self._quit and self._on_quit is not None:
             return self._on_quit()  # 弃局回标题(SUPERVISOR_STATE_MAINMENU)
         return self._on_exit()

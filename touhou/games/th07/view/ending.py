@@ -172,7 +172,8 @@ class EndingScene(Scene):
             )
         overlay = p.fade_overlay()
         if overlay is not None:
-            # FadingEffect 全屏覆盖 (Ending.cpp:99-165); 文本层在其上(见报告)
+            # FadingEffect 全屏覆盖, 最顶(压住文本层, Ending.cpp:99-165);
+            # 后端 sprite/text 统一按 z 排序, 文本 z=250 < 覆盖层 300
             sprites.append(
                 SpriteDraw(
                     "misc:overlay",
@@ -195,6 +196,7 @@ class EndingScene(Scene):
                     line.color & 255,
                     255,
                 ),
+                z=250.0,
             )
             for i, line in enumerate(p.texts[:_TEXT_SLOTS])
         ]

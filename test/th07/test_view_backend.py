@@ -157,3 +157,81 @@ def test_real_data_surfaces_and_fps() -> None:
         assert fps > 30.0
     finally:
         b.close()
+
+
+def test_text_z_below_overlay(backend: PygameBackend) -> None:
+    """sprite/text 统一 z 序: 低 z 文本被高 z 覆盖层压住(结局 FadingEffect 序)。"""
+    overlay = SpriteDraw(
+        "misc:overlay", 320.0, 240.0, z=300.0, alpha=255, color=(10, 20, 30)
+    )
+
+    def _has_white() -> bool:
+        frame = backend._frame_surf
+        assert frame is not None
+        for x in range(100, 150):
+            for y in range(100, 116):
+                if frame.get_at((x, y))[:3] == (255, 255, 255):
+                    return True
+        return False
+
+    # 低 z 文本(250)在覆盖层(300)之下: 白字像素被盖
+    backend._render(
+        SceneSnapshot(
+            0,
+            sprites=(overlay,),
+            texts=(TextDraw("ABC", 100.0, 100.0, 15, (255, 255, 255, 255), z=250.0),),
+        )
+    )
+    assert not _has_white()
+    frame = backend._frame_surf
+    assert frame is not None and frame.get_at((105, 105))[:3] == (10, 20, 30)
+    # 缺省 z(1e9): 文本恒在覆盖层之上(旧行为)
+    backend._render(
+        SceneSnapshot(
+            1,
+            sprites=(overlay,),
+            texts=(TextDraw("ABC", 100.0, 100.0, 15, (255, 255, 255, 255)),),
+        )
+    )
+    assert _has_white()
+
+
+def test_bossseg_gradient(backend: PygameBackend) -> None:
+    """misc:bossseg: 顶=sprite color, 底=各通道>>2 的 4px 竖渐变 (Gui.cpp:1863-1868)。"""
+    backend._render(
+        SceneSnapshot(
+            0,
+            sprites=(
+                SpriteDraw(
+                    "misc:bossseg",
+                    64.0,
+                    19.0,
+                    z=104.0,
+                    scale_x=160.0,
+                    scale_y=4.0,
+                    color=(255, 128, 128),
+                ),
+            ),
+        )
+    )
+    frame = backend._frame_surf
+    assert frame is not None
+    assert frame.get_at((100, 19))[:3] == (255, 128, 128)  # 顶行
+    assert frame.get_at((100, 22))[:3] == (63, 32, 32)  # 底行 (>>2)
+    assert frame.get_at((100, 24))[:3] != (63, 32, 32)  # 条外(高 4px)
+
+
+def test_home_screenshot(backend: PygameBackend, tmp_path, monkeypatch) -> None:
+    """Home 截图: snapshot/th%03d.bmp 首个空位, 640x480 BMP (GameWindow.cpp:107-119)。"""
+    monkeypatch.chdir(tmp_path)
+    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_HOME))
+    inp = backend.frame((), _snapshot(0))
+    assert inp is not None and Button.HOME in inp.pressed
+    first = tmp_path / "snapshot" / "th000.bmp"
+    assert first.exists()
+    assert pygame.image.load(str(first)).get_size() == (WIN_W, WIN_H)
+    # 再按一次 → 下一空位 th001.bmp
+    pygame.event.post(pygame.event.Event(pygame.KEYUP, key=pygame.K_HOME))
+    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_HOME))
+    backend.frame((), _snapshot(1))
+    assert (tmp_path / "snapshot" / "th001.bmp").exists()

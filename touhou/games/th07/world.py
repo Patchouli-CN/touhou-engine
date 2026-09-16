@@ -162,6 +162,8 @@ class Th07World(World):
         default_factory=list
     )
     frame_bonus_score: int = 0  # 清场 BONUS 横幅分(代码值, 0=本帧无), view 消费
+    # boss 本帧受击(EnemyManager.cpp:1049-1058 useColor2); view 的 boss▼标记蓝化用
+    frame_boss_damage: bool = False
     # ECL SET_SCRIPT_WAIT_TIME 透出 (EclManager.cpp:1821-1823 写 g_Stage);
     # view 的 3D 背景场景消费(std 脚本跳 WaitLabel)
     stage_script_waits: list[int] = msgspec.field(default_factory=list)
@@ -184,6 +186,7 @@ class Th07World(World):
         self.frame_shakes.clear()
         self.frame_popups.clear()
         self.frame_bonus_score = 0
+        self.frame_boss_damage = False
         self.stage_script_waits.clear()
         self.bullets.frame_sounds.clear()  # 弹命令触发音与本帧重齐(帧末 drain)
         if self.game_over:

@@ -161,7 +161,10 @@ def test_graze_point_rows() -> None:
 
 
 def test_cherry_gauge_no_cherryplus_row() -> None:
-    """右栏无 CherryPlus 文本行; 樱点走底部计量条 (AsciiManager.cpp:1140-1295)。"""
+    """右栏无 CherryPlus 文本行; 樱点走底部计量条 (AsciiManager.cpp:1140-1295)。
+
+    无数据兜底落点 = 脚本 4 interrupt 1 终值左上 (32,449)(实测 ascii.anm)。
+    """
     w = Th07World()
     w.th07.cherry_start = 10000
     w.th07.cherry = 10000 + 20350
@@ -174,10 +177,10 @@ def test_cherry_gauge_no_cherryplus_row() -> None:
     gauge = [s for s in sprs if s.image == "ascii.anm:142"]
     assert len(gauge) == 1 and (gauge[0].x, gauge[0].y) == (
         80.0,
-        472.0,
-    )  # 左上 (32,464)
-    lower = [s for s in _row(sprs, 475.0) if s.image.startswith("ascii.anm:")]
-    # "20350" 前导零省略从第二槽 (85,475) 起 + "200000" 从 6 槽步进完 +9 起
+        457.0,
+    )  # 左上 (32,449)
+    lower = [s for s in _row(sprs, 460.0) if s.image.startswith("ascii.anm:")]
+    # "20350" 前导零省略从第二槽 (85,460) 起 + "200000" 从 6 槽步进完 +9 起
     assert [s.image for s in lower[:5]] == [
         f"ascii.anm:{132 + d}" for d in (2, 0, 3, 5, 0)
     ]
@@ -186,7 +189,7 @@ def test_cherry_gauge_no_cherryplus_row() -> None:
         f"ascii.anm:{132 + d}" for d in (2, 0, 0, 0, 0, 0)
     ]
     assert lower[5].x == 78.0 + 6 * 7.0 + 9.0
-    upper = [s for s in _row(sprs, 466.0) if s.image.startswith("ascii.anm:")]
+    upper = [s for s in _row(sprs, 451.0) if s.image.startswith("ascii.anm:")]
     assert [s.image for s in upper] == [f"ascii.anm:{132 + d}" for d in (1, 2, 3, 4, 5)]
     assert upper[0].x == 85.0 and upper[0].color == (192, 128, 176)
 
@@ -198,14 +201,14 @@ def test_cherry_gauge_border_states() -> None:
     w.th07.cherry_plus = 50000
     w.player.border.has_border = BorderState.READY
     sprs = _produce(w).draw.sprites
-    upper = [s for s in _row(sprs, 464.0) if s.image.startswith("ascii.anm:13")]
+    upper = [s for s in _row(sprs, 449.0) if s.image.startswith("ascii.anm:13")]
     assert upper and all(s.scale_x == 1.41 for s in upper)
     assert upper[0].x == 87.0  # +2 偏移
     assert not [s for s in sprs if s.image == "ascii.anm:143"]
     w.player.border.has_border = BorderState.ACTIVE
     sprs = _produce(w).draw.sprites
     mark = [s for s in sprs if s.image == "ascii.anm:143"]
-    assert len(mark) == 1 and (mark[0].x, mark[0].y) == (56.0, 472.0)
+    assert len(mark) == 1 and (mark[0].x, mark[0].y) == (56.0, 457.0)
 
 
 def test_powerbar_backend_pixels() -> None:
@@ -361,3 +364,165 @@ def test_midboss_bar_real_stage() -> None:
                 if s.image == "front.anm:9":  # 血条框 (vms0[11] 稳态 sprite)
                     seen_frame = True
     assert seen_bar and seen_frame
+
+
+def test_boss_bar_spellcard_segments() -> None:
+    """血条符卡彩段: host.boss_health 槽 → 分界彩色段 (Gui.cpp:1847-1869)。"""
+    from types import SimpleNamespace
+
+    from touhou.engine.boss import BossField
+
+    w = Th07World(character=0, difficulty=1)
+    w.boss = BossField()
+    w.boss.set_life(2000.0)
+    # 两段: 0..1000 红 / 1000..2000 粉 (ecldata3 sub37 形态)
+    w.host = SimpleNamespace(  # type: ignore[assignment]
+        boss_health=[(0, 1000, 0xFF8080), (1000, 2000, 0xFFA0A0)] + [(0, 0, 0)] * 6,
+        boss_life_markers=0,
+    )
+    sys = Th07SnapshotSystem()
+    ctx = _tick_bar(w, sys, 200)  # 满血缓动到位
+    segs = sorted(
+        (s for s in ctx.draw.sprites if s.image == "misc:bossseg"), key=lambda s: s.x
+    )
+    assert len(segs) == 2
+    assert segs[0].x == 64.0 and segs[0].scale_x == 160.0  # 0..0.5
+    assert segs[0].color == (255, 128, 128)
+    assert segs[1].x == 224.0 and segs[1].scale_x == 160.0  # 0.5..1.0
+    assert segs[1].color == (255, 160, 160)
+    # 血扣到第一段以下: 条长缓过段起点后段消失 (:1854)
+    w.boss.life = 0.0
+    ctx = _tick_bar(w, sys, 200)
+    assert not [s for s in ctx.draw.sprites if s.image == "misc:bossseg"]
+
+
+# ---- boss 底部▼位置标记 (EnemyManager.cpp:1064-1089) + 计量条滑入淡出 ----
+
+
+def _ascii_bank():
+    """真 ascii.anm 的 AnmBank(needs_data 用)。"""
+    from touhou.engine import open_archive
+    from touhou.engine.anm import build_bank
+    from touhou.schemas.anm import parse_anm
+    from touhou.schemas.archive import load_entry
+
+    from .conftest import DATA
+
+    archive = open_archive(DATA)
+    return build_bank(
+        parse_anm(load_entry(archive, "ascii.anm"), version=2, flat_layout=False),
+        flat_layout=False,
+    )
+
+
+def test_boss_marker_silent_without_bank() -> None:
+    """无 anm 数据: ▼标记静默(同其它贴图件)。"""
+    from touhou.games.th07.hud import BossMarker
+
+    w = Th07World()
+    m = BossMarker(Rng(0))
+    out: list = []
+    m.step(w, out, None)
+    assert not out
+
+
+@needs_data
+def test_boss_marker_tracks_boss() -> None:
+    """▼标记: SET_BOSS 边沿淡入, 跟 boss 横坐标 y=472; 距自机近变淡; 受击帧蓝化。"""
+    from types import SimpleNamespace
+
+    from touhou.games.th07.hud import BossMarker
+    from touhou.utils.math import Vec2
+
+    bank = _ascii_bank()
+    w = Th07World()
+    m = BossMarker(Rng(0))
+    out: list = []
+    m.step(w, out, bank)
+    assert not out  # 无 boss 不画
+    e = SimpleNamespace(active=True, has_no_collision=0, pos2=(200.0, 100.0))
+    w.boss_enemy = e  # type: ignore[assignment]
+    w.player.pos = Vec2(300.0, 400.0)
+    m.step(w, (out := []), bank)
+    assert len(out) == 1
+    mark = out[0]
+    assert mark.image == "ascii.anm:144"  # 脚本 6 稳态 sprite
+    assert (mark.x, mark.y) == (232.0, 472.0)  # boss.x+32, y=472 (:1076-1082)
+    assert mark.alpha == 176  # 距自机 ≥64px (:345)
+    # 距自机 64px 内变淡 (:336-343)
+    w.player.pos = Vec2(190.0, 400.0)
+    m.step(w, (out := []), bank)
+    assert out[0].alpha == int(10.0 * 128.0 / 64.0 + 48.0)
+    # 受击帧蓝化 (:347-352)
+    w.frame_boss_damage = True
+    m.step(w, (out := []), bank)
+    assert out[0].color == (64, 64, 255) and out[0].alpha == 128
+    w.frame_boss_damage = False
+    # hasNoCollision → 不画 (:1077-1081)
+    e.has_no_collision = 1
+    m.step(w, (out := []), bank)
+    assert not out
+    e.has_no_collision = 0
+    m.step(w, (out := []), bank)  # 恢复在场, 标记回 boss 横坐标
+    assert out
+    # 撤档 → interrupt 2 淡出, 30 帧内仍画在最后位置, 之后消隐
+    w.boss_enemy = None
+    m.step(w, (out := []), bank)
+    assert out and out[0].x == 232.0
+    for _ in range(40):
+        m.step(w, (out := []), bank)
+    assert not out
+
+
+@needs_data
+def test_cherry_gauge_slide_and_fade() -> None:
+    """计量条: 开局 interrupt 1 左缘滑入; 自机压底左淡出 64, 离开淡回 (Player.cpp:2196-2221)。"""
+    from touhou.games.th07.hud import CherryGauge
+    from touhou.utils.math import Vec2
+
+    bank = _ascii_bank()
+    w = Th07World()
+    w.player.pos = Vec2(192.0, 384.0)
+    gauge = CherryGauge(Rng(0))
+    out: list = []
+    gauge.step(w, out, bank)
+    g = [s for s in out if s.image == "ascii.anm:142"]
+    assert g and g[0].x < 80.0  # 滑入途中(左上 x<32)
+    for _ in range(30):  # 滑入 15 帧到 (32,449)
+        gauge.step(w, (out := []), bank)
+    g = [s for s in out if s.image == "ascii.anm:142"]
+    assert g and (g[0].x, g[0].y) == (80.0, 457.0) and g[0].alpha == 255
+    # 自机压到底部左侧 → interrupt 2 淡出至 64
+    w.player.pos = Vec2(100.0, 420.0)
+    for _ in range(30):
+        gauge.step(w, (out := []), bank)
+    g = [s for s in out if s.image == "ascii.anm:142"]
+    assert g and g[0].alpha == 64
+    digits = [s for s in out if s.image.startswith("ascii.anm:13")]
+    assert digits and all(s.alpha == 64 for s in digits)  # 数字随条淡隐
+    # 离开 → interrupt 3 淡回 255
+    w.player.pos = Vec2(300.0, 420.0)
+    for _ in range(30):
+        gauge.step(w, (out := []), bank)
+    g = [s for s in out if s.image == "ascii.anm:142"]
+    assert g and g[0].alpha == 255
+
+
+def test_cherry_gauge_fade_state_without_bank() -> None:
+    """淡出状态机无数据也记账(兜底静态绘制不淡出, Player.cpp:2201-2221)。"""
+    from touhou.games.th07.hud import CherryGauge
+    from touhou.utils.math import Vec2
+
+    w = Th07World()
+    w.player.pos = Vec2(100.0, 420.0)  # 底部左侧
+    gauge = CherryGauge(Rng(0))
+    out: list = []
+    gauge.step(w, out, None)
+    assert gauge._fade == 2
+    assert [s for s in out if s.image == "ascii.anm:142"]  # 兜底仍画
+    w.player.pos = Vec2(300.0, 420.0)
+    gauge.step(w, [], None)
+    assert gauge._fade == 3
+    w.player.pos = Vec2(300.0, 300.0)  # y<400 且 fade==2 才回 3; 已是 3 不动
+    gauge.step(w, [], None)
+    assert gauge._fade == 3

@@ -46,6 +46,19 @@ _MENU_EXIT = 8
 _SHOT_COUNT = 6  # 机体(装备)数
 _TOP_SIZE = 10  # 每榜 10 行
 
+# Hard 页全解锁作弊码 (ResultScreen.cpp:926-989): 按住 Shift(FOCUS)/Ctrl(SKIP)
+# 依次 ↑↑↑DD↓↓QQQ; 按错(TH_BUTTON_WRONG_CHEATCODE, Controller.hpp:33-35)归零
+_CHEAT_KEYS = (Button.UP,) * 3 + (Button.D,) * 2 + (Button.DOWN,) * 2 + (Button.Q,) * 3
+_CHEAT_WRONG = (
+    Button.SHOT,
+    Button.BOMB,
+    Button.PAUSE,
+    Button.Q,
+    Button.S,
+    Button.ENTER,
+)
+_SE_EXTEND = 28  # SOUND_EXTEND (SoundPlayer.hpp:37)
+
 _INIT_GATE = 20  # INIT 20 帧后才进选择态 (:814)
 _PAGE_GATE = 30  # 分数页/符卡页 30 帧输入门 (:1002/:1066)
 _NAME_REFRESH = 20  # 机体名/符卡名单在 frameTimer==20 重绘 (:995/:1033)
@@ -149,9 +162,11 @@ class PlayerDataScene(MenuScene):
         anm_version: int = 2,
         spellcard_count: int = 0,
         on_exit: Callable[[], Scene],
+        on_cheat: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
         self._on_exit = on_exit
+        self._on_cheat = on_cheat
         self._store = store
         # 符卡张数 = 作品表口径(SPELLCARD_COUNT); 读档扩容多出的条目不显示(:1037)
         self._spellcard_count = (
@@ -173,6 +188,7 @@ class PlayerDataScene(MenuScene):
         self._list_scroll_anim = 0
         self._frame_timer = 0
         self._frame = 0
+        self._cheat_step = 0  # Hard 页作弊码进度 (cheatCodeStep, :926)
         # 各页的符卡取得枚数 (totalPlayCountPerShot, AddedCallback :2618-2633)
         self._obtained = [
             sum(
@@ -322,7 +338,8 @@ class PlayerDataScene(MenuScene):
 
     # ---- 最高分榜页 (:925-1029) ----
     def _update_score(self) -> None:
-        # Hard 页作弊码(FOCUS+↑↑↑DD↓↓↓QQQ, :926-989)不移植: 引擎输入层无字母键
+        if self._state == _ST_SCORE_BASE + 2:
+            self._update_cheat()  # Hard 页全解锁作弊码 (:926-989)
         if self._char_used != self.cursor and self._frame_timer == _NAME_REFRESH:
             self._char_used = self.cursor  # 机体名重绘 (:995-1001)
         if self._frame_timer < _PAGE_GATE:
@@ -335,6 +352,26 @@ class PlayerDataScene(MenuScene):
             self._prev_cursor = self.cursor
             self.cursor = self._diff_played
             self._enter_init()  # goto CASE_RESULT_STATE_INIT (:1027)
+
+    def _update_cheat(self) -> None:
+        """Hard 页作弊码 (:926-989): 按住 FOCUS/SKIP 输 ↑↑↑DD↓↓QQQ 全解锁。"""
+        if not ({Button.FOCUS, Button.SKIP} & self._inp.held):
+            self._cheat_step = 0  # 松修饰键归零 (:986-988)
+            return
+        if self._pressed(_CHEAT_KEYS[self._cheat_step]):
+            self._cheat_step += 1
+        elif any(self._pressed(b) for b in _CHEAT_WRONG):
+            self._cheat_step = 0
+        if self._cheat_step < len(_CHEAT_KEYS):
+            return
+        for c in self._store.clrd:  # 全机体全难度 99 (:975-983)
+            for key in ("with_retries", "without_retries"):
+                c[key][:] = [99] * len(c[key])
+        self._cheat_step = 0
+        self._phantasm = _phantasm_unlocked(self._store, self._spellcard_count)
+        self._sounds.append(_SE_EXTEND)  # SOUND_EXTEND (:985)
+        if self._on_cheat is not None:
+            self._on_cheat()  # 落盘(C++ 在退出时写 score.dat)
 
     # ---- 符卡收集表页 (:1030-1098) ----
     def _update_spellcards(self) -> None:

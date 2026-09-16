@@ -18,6 +18,7 @@ from touhou.engine import (
     Slot,
     SpriteDraw,
     System,
+    TextDraw,
     World,
     tick_frame,
 )
@@ -120,6 +121,24 @@ def test_input_frame_value_semantics() -> None:
         menu=frozenset({MenuAction.CONFIRM}),
     )
     assert Button.SHOT in inp.held and MenuAction.CONFIRM in inp.menu
+
+
+def test_letter_buttons() -> None:
+    """字母/功能键(Q/D/S/R/Home/Enter)与自机键同通道 (Controller.hpp:16-21)。"""
+    inp = InputFrame(
+        held=frozenset(
+            {Button.Q, Button.D, Button.S, Button.RESET, Button.HOME, Button.ENTER}
+        ),
+        pressed=frozenset({Button.Q}),
+    )
+    assert Button.Q in inp.pressed and Button.HOME in inp.held
+    assert Button.RESET in inp.held and Button.ENTER in inp.held
+
+
+def test_text_draw_z() -> None:
+    """TextDraw.z: 缺省 1e9 恒在 sprite 之上(旧行为); 显式低 z 可被覆盖层压住。"""
+    assert TextDraw("a", 0.0, 0.0).z == 1e9
+    assert TextDraw("a", 0.0, 0.0, z=250.0).z == 250.0
 
 
 def test_rng_deterministic_same_seed() -> None:

@@ -482,3 +482,69 @@ def test_real_data_layout() -> None:
     _step(scene, _IDLE, 90)
     texts = _texts(scene)
     assert "No  Name      Score(Stage)  Date   Slow" in texts
+
+
+# ---- Hard 页全解锁作弊码 (ResultScreen.cpp:926-989) ----
+
+_CHEAT_SEQ = [Button.UP] * 3 + [Button.D] * 2 + [Button.DOWN] * 2 + [Button.Q] * 3
+
+
+def _enter_hard_page(scene: PlayerDataScene) -> None:
+    """进门 → 光标 1→2(Hard) → 确认进 Hard 分数页。"""
+    _enter(scene)
+    _step(scene, _press(Button.DOWN))
+    _step(scene, _press(Button.SHOT))
+    assert scene._state == 5  # _ST_SCORE_BASE+2 = SCORE_HARD
+
+
+def _cheat_input(scene: PlayerDataScene, keys: list, modifier: Button) -> None:
+    """按住 modifier 逐键点按(每键间松开, 避开 eighth 重复)。"""
+    for k in keys:
+        _step(scene, InputFrame(held=frozenset({modifier, k}), pressed=frozenset({k})))
+        _step(scene, InputFrame(held=frozenset({modifier})))
+
+
+def test_hard_page_cheat_code() -> None:
+    """按住 FOCUS 输 ↑↑↑DD↓↓QQQ: 全机体全难度解锁 99 + SOUND_EXTEND + 落盘回调。"""
+    store = _store()
+    saved: list[int] = []
+    scene = _scene(store, on_cheat=lambda: saved.append(1))
+    _enter_hard_page(scene)
+    _cheat_input(scene, _CHEAT_SEQ, Button.FOCUS)
+    assert 28 in scene.drain_sounds()  # SOUND_EXTEND (:985)
+    for c in store.clrd:
+        assert all(v == 99 for v in c["with_retries"])
+        assert all(v == 99 for v in c["without_retries"])
+    assert saved == [1]
+    assert scene._phantasm  # 解锁后 Phantasm 判定即时刷新
+
+
+def test_cheat_reset_and_gates() -> None:
+    """按错键/松修饰键归零; SKIP(Ctrl) 也是合法修饰键; 非 Hard 页不跑。"""
+    store = _store()
+    scene = _scene(store)
+    _enter_hard_page(scene)
+    # ↑↑ 后按 BOMB(错误键)归零 (:931-936; BOMB 同时是取消键, 顺带退出分数页)
+    _cheat_input(scene, [Button.UP, Button.UP], Button.FOCUS)
+    assert scene._cheat_step == 2
+    _cheat_input(scene, [Button.BOMB], Button.FOCUS)
+    assert scene._cheat_step == 0
+    # 重进 Hard 页(取消后光标停在原难度, 直接确认即可)
+    _step(scene, _IDLE, 21)  # INIT 门
+    _step(scene, _press(Button.SHOT))
+    assert scene._state == 5
+    # 松开修饰键归零 (:986-988)
+    _cheat_input(scene, [Button.UP, Button.UP], Button.FOCUS)
+    _step(scene, _IDLE)
+    assert scene._cheat_step == 0
+    # SKIP(Ctrl) 修饰同样有效 (:927)
+    _cheat_input(scene, _CHEAT_SEQ, Button.SKIP)
+    assert all(v == 99 for v in store.clrd[0]["with_retries"])
+    # 非 Hard 页: 序列不触发(Normal 页重来一遍)
+    store2 = _store()
+    scene2 = _scene(store2)
+    _enter(scene2)  # 光标停在 1=Normal
+    _step(scene2, _press(Button.SHOT))
+    assert scene2._state == 4  # SCORE_NORMAL
+    _cheat_input(scene2, _CHEAT_SEQ, Button.FOCUS)
+    assert not any(v == 99 for v in store2.clrd[0]["with_retries"])

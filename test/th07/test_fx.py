@@ -9,9 +9,12 @@ import pytest
 from touhou.engine import InputFrame, SceneSnapshot, SpriteDraw, open_archive
 from touhou.engine.anm import build_bank
 from touhou.engine.boss import SpellcardBegan
+from touhou.engine.bullets import BulletGraze
 from touhou.engine.enemies import EnemyDied
+from touhou.engine.lasers import LaserGraze
+from touhou.engine.player import PlayerGrazed
 from touhou.engine.rng import Rng
-from touhou.games.th07.player import Border
+from touhou.games.th07.player import Border, BorderState
 from touhou.games.th07.snapshot import GAME_X, GAME_Y
 from touhou.games.th07.view import PygameBackend
 from touhou.games.th07.view import backend as backend_mod
@@ -245,6 +248,64 @@ def test_gamefx_events_silent_without_data() -> None:
     sprites, texts = fx.step()
     assert sprites == [] and texts == []
     assert len(fx.particles) == 0 and not fx.banner.active
+
+
+# ---- 擦弹火花 (Player.cpp:1192-1206, effect 8) ----
+
+
+def _graze_world(**player_kw) -> SimpleNamespace:
+    """带 has_border/focus 的 world stub(擦弹火花分支用)。"""
+    player = SimpleNamespace(
+        pos=SimpleNamespace(x=100.0, y=100.0),
+        border=SimpleNamespace(active=False, has_border=BorderState.NONE),
+        focus=False,
+    )
+    for k, v in player_kw.items():
+        setattr(player, k, v)
+    return _stub_world(player=player)
+
+
+def test_graze_spark_silent_without_bank() -> None:
+    """弹/激光/体术擦弹事件喂入: 无 anm 数据静默不炸。"""
+    w = _graze_world()
+    fx = GameFx(w)
+    w.subscribers[0](BulletGraze(200.0, 200.0))
+    w.subscribers[0](LaserGraze(100.0, 100.0))
+    w.subscribers[0](PlayerGrazed(150.0, 150.0))
+    fx.step()
+    assert len(fx.particles) == 0
+
+
+@needs_data
+def test_graze_spark_count_and_pos() -> None:
+    """擦弹火花: 落点=自机与弹中点; 无结界/结界低速 1 发, 结界高速 3 发淡红。"""
+    bank = build_bank(
+        parse_anm(
+            load_entry(open_archive(DATA), "etama.anm"), version=2, flat_layout=False
+        ),
+        flat_layout=False,
+    )
+    w = _graze_world()
+    fx = GameFx(w)
+    fx._banks["etama.anm"] = bank  # 预填缓存, 绕过 world.archive
+    w.subscribers[0](BulletGraze(200.0, 200.0))
+    assert len(fx.particles) == 1  # 无结界: 1 发白 (:1203-1205)
+    p = fx.particles._alive[0]
+    assert (p.x, p.y) == (150.0, 150.0)  # (自机 100,100 + 弹 200,200)/2 (:1191)
+    sprites = fx.step()[0]
+    assert [s for s in sprites if s.image.startswith("etama.anm:")]  # 粒子出图
+    # 结界 ACTIVE + 非低速: 3 发淡红 (:1196-1198)
+    w2 = _graze_world()
+    w2.player.border.has_border = BorderState.ACTIVE
+    w2.player.border.active = True
+    fx2 = GameFx(w2)
+    fx2._banks["etama.anm"] = bank
+    w2.subscribers[0](BulletGraze(200.0, 200.0))
+    assert len(fx2.particles) == 3
+    # 结界 ACTIVE + 低速: 1 发 (:1194-1195)
+    w2.player.focus = True
+    w2.subscribers[0](BulletGraze(200.0, 200.0))
+    assert len(fx2.particles) == 4
 
 
 def test_stage_title_silent_without_bank() -> None:

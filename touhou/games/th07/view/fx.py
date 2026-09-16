@@ -20,13 +20,16 @@ from ....engine import SpriteDraw, TextDraw
 from ....engine.anm import AnmBank, build_bank
 from ....engine.bomb import BombEnded, BombStarted
 from ....engine.boss import SpellcardBegan, SpellcardEnded, SpellcardFailed
+from ....engine.bullets import BulletGraze
 from ....engine.enemies import EnemyDied
 from ....engine.events import Event
+from ....engine.lasers import LaserGraze
 from ....engine.msg import MsgMusicChange
-from ....engine.player import PlayerDied
+from ....engine.player import PlayerDied, PlayerGrazed
 from ....engine.rng import Rng
 from ....schemas.anm import parse_anm
 from ....schemas.archive import load_entry
+from ..player import BorderState
 from ..world import Th07World
 from .bombfx import BombFx
 from .dialog import DialogBox, DialogPortraits
@@ -129,6 +132,23 @@ class GameFx:
             self.bombfx.begin(w, focus=ev.focus, bank_of=self._bank)
         elif isinstance(ev, BombEnded):
             self.bombfx.end()
+        elif isinstance(ev, (BulletGraze, PlayerGrazed)):
+            # 擦弹火花 effect 8 (Player.cpp:1192-1206): 自机中心与弹/敌的中点
+            p = w.player.pos
+            self._graze_spark((p.x + ev.x) / 2.0, (p.y + ev.y) / 2.0)
+        elif isinstance(ev, LaserGraze):
+            # 激光擦弹: ScoreGraze(&positionCenter) (Player.cpp:1154)
+            self._graze_spark(w.player.pos.x, w.player.pos.y)
+
+    def _graze_spark(self, x: float, y: float) -> None:
+        """擦弹火花: 结界中非低速 3 发淡红, 其余 1 发白 (Player.cpp:1192-1201)。"""
+        w = self._world
+        border = w.player.border.has_border == BorderState.ACTIVE
+        bank = self._bank("etama.anm")
+        if border and not w.player.focus:
+            self.particles.spawn(bank, 8, x, y, 3, 0xFFFF8080)
+        else:
+            self.particles.spawn(bank, 8, x, y, 1, 0xFFFFFFFF)
 
     def _enemy_death_fx(self, ev: EnemyDied) -> None:
         """敌击坠爆散 (EnemyManager.cpp:959-1019): deathAnm1 + deathAnm2+4。"""

@@ -2,9 +2,11 @@
 
 只接 Resume/Return to Title 两行(= C++ replay 模式的两行 toggle 语义; restart 行
 不实现, sprite 3 恒隐, AsciiManager.cpp:531-534), Return 带 はい/いいえ 确认
-(默认 No)。菜单叠在冻结帧上(C++ menuBackground 是游戏截屏, :525-545, 本作由
-GameScene 冻结快照承担)。quit = SUPERVISOR_STATE_MAINMENU 直回标题不进结算
-(:755-759), 出口由 GameScene.on_quit 接缝落地。
+(默认 No)。快捷键: Q 无确认直退回标题 (:462-475), R 无确认重开 (:476-489,
+RESTART_FROM_BEGINNING: 通常难度回一面全量重开, practice/Ex/Ph 重开本面,
+Supervisor.cpp:281-297)。菜单叠在冻结帧上(C++ menuBackground 是游戏截屏,
+:525-545, 本作由 GameScene 冻结快照承担)。quit = SUPERVISOR_STATE_MAINMENU
+直回标题不进结算 (:755-759), 出口由 GameScene.on_quit/on_restart 接缝落地。
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ _ST_CONFIRM_YES = 3
 _ST_CONFIRM_NO = 4
 _ST_UNPAUSING = 5
 _ST_QUITTING = 6
+_ST_RESTARTING = 7  # PAUSE_MENU_STATE_RESTART_STAGE (R 键, :476-489/:766-776)
 
 _GATE = 4  # 选择态输入门 (AsciiManager.cpp:547 等)
 _FRAMES_EXIT = 20  # 离场等 20 帧 (:652/:747/:760)
@@ -60,7 +63,7 @@ class PauseMenu:
         self._music = music
         self._state = _ST_INIT
         self._frames = 0
-        self.choice: str | None = None  # "resume" / "quit"
+        self.choice: str | None = None  # "resume" / "quit" / "restart"
         self._sounds: list[int] = []
         rng = Rng(0)  # view VM 专用, 与 sim 无关
         self._bank = _load_bank(world.archive, anm_version)
@@ -91,6 +94,18 @@ class PauseMenu:
             self._sounds.append(SE_SELECT)
             self._exit_vms(range(10))
             self._state = _ST_UNPAUSING
+            self._frames = 0
+        elif Button.Q in inp.pressed and self._state != _ST_QUITTING:
+            # Q = 直退回标题, 无确认 (:462-475)
+            self._sounds.append(SE_SELECT)
+            self._exit_vms(range(10))
+            self._state = _ST_QUITTING
+            self._frames = 0
+        elif Button.RESET in inp.pressed and self._state != _ST_QUITTING:
+            # R = 重开, 无确认 (:476-489; C++ 回放模式禁用, 本菜单不回放用)
+            self._sounds.append(SE_SELECT)
+            self._exit_vms(range(10))
+            self._state = _ST_RESTARTING
             self._frames = 0
         elif self._state == _ST_INIT:
             self._state = _ST_SELECT_RESUME  # INIT fallthrough (:521)
@@ -143,6 +158,9 @@ class PauseMenu:
                 if self._music is not None:
                     self._music.unpause()  # AUDIO_UNPAUSE (:663-666)
                 self.choice = "resume"
+        elif self._state == _ST_RESTARTING:
+            if self._frames >= _FRAMES_EXIT:
+                self.choice = "restart"  # RESTART_FROM_BEGINNING (:766-776)
         else:  # _ST_QUITTING
             if self._frames >= _FRAMES_EXIT:
                 self.choice = "quit"  # curState=MAINMENU (:755-759)

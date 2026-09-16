@@ -223,9 +223,9 @@ def _run_ex_ins(m: EclMachine, ins: RunExIns) -> None:
 def _set_life(m: EclMachine, ins: SetLife) -> None:
     e = m.enemy
     e.life = e.max_life = m.ival(ins.life)
-    if m.file.version != 0:
-        # v800 顺带记 phaseStartingLife(宿主状态), 透出一份
-        m.host.enemy_config(m, ins)
+    # 透出一份给宿主: v800 记 phaseStartingLife; v0 作品自取所需
+    # (th07 boss0 换阶段清血条彩段槽, EclManager.cpp:1695-1703)
+    m.host.enemy_config(m, ins)
 
 
 def _set_timer(m: EclMachine, ins: SetTimer) -> None:

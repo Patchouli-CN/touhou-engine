@@ -7,9 +7,14 @@ from typing import get_args
 import msgspec
 import pytest
 
+from touhou.engine.bullets import BulletField
 from touhou.engine.ecl import HANDLERS, EclHost, EclMachine
+from touhou.engine.enemies import Enemy, EnemyField
+from touhou.engine.items import ItemField
+from touhou.engine.lasers import LaserField
 from touhou.engine.rng import Rng
 from touhou.games.th07.ecl_handlers import ECL_EXTRA_HANDLERS
+from touhou.games.th07.ecl_host import Th07EclHost
 from touhou.games.th07.ecl_instrs import (
     Instruction,
     MovePosTime,
@@ -17,6 +22,7 @@ from touhou.games.th07.ecl_instrs import (
     SetPeriodicCallback,
     SetPos,
 )
+from touhou.games.th07.ecl_state import EnemyExtras
 from touhou.schemas.ecl import (
     Add,
     EclFile,
@@ -25,6 +31,8 @@ from touhou.schemas.ecl import (
     ImmFloat,
     ImmInt,
     Nop,
+    SetBossHealth,
+    SetLife,
     SetMovementBounds,
     SubRet,
     VarRef,
@@ -151,3 +159,69 @@ def test_movement_bounds_clamp() -> None:
     assert m.enemy.pos.x == 10.0  # SetPos 当场夹
     m.step()
     assert m.enemy.pos.x == 10.0  # 积分后仍夹在界内
+
+
+# ---- 血条彩段槽 (EclManager.cpp:1695-1712, Gui.hpp:258-260) ----
+
+
+def _th07_host() -> Th07EclHost:
+    """最小 Th07EclHost(空 ECL 文件 + 空 field 组)。"""
+    return Th07EclHost(
+        build_file([ins(Nop, 99)]),
+        bullets=BulletField(),
+        lasers=LaserField(),
+        items=ItemField(),
+        enemies=EnemyField(),
+        rng=Rng(0),
+    )
+
+
+def _link(host: Th07EclHost, m: EclMachine, *, boss: bool) -> None:
+    """机器 ↔ 敌人/extras 登记(spawn_enemy 的账本段)。"""
+    e = Enemy(machine=m, enemy_id=id(m) & 0xFFFF)
+    e.is_boss = 1 if boss else 0
+    ex = EnemyExtras()
+    ex.boss_id = 0 if boss else -1
+    host.extras[id(m)] = ex
+    host.machine_enemy[id(m)] = e
+
+
+def test_set_boss_health_slots() -> None:
+    """SetBossHealth 按槽落 (current, max, color) 原值; boss0 的 SetLife 清零。"""
+    host = _th07_host()
+    m = make(
+        [
+            ins(
+                SetBossHealth,
+                0,
+                idx=ImmInt(0),
+                current=ImmInt(0),
+                max=ImmInt(1200),
+                color=ImmInt(0xFFA0A0),
+            ),
+            ins(
+                SetBossHealth,
+                0,
+                idx=ImmInt(1),
+                current=ImmInt(1200),
+                max=ImmInt(2900),
+                color=ImmInt(0xFF8080),
+            ),
+            ins(Nop, 99),
+        ],
+        host,
+    )
+    _link(host, m, boss=True)
+    run_frames(m, 2)
+    assert host.boss_health[:2] == [(0, 1200, 0xFFA0A0), (1200, 2900, 0xFF8080)]
+    # 非 boss 的 SetLife 不清槽
+    m2 = make([ins(SetLife, 0, life=ImmInt(3000)), ins(Nop, 99)], host)
+    _link(host, m2, boss=False)
+    run_frames(m2, 2)
+    assert m2.enemy.life == 3000 and m2.enemy.max_life == 3000
+    assert host.boss_health[0] == (0, 1200, 0xFFA0A0)
+    # boss0 的 SetLife 清零全槽 (EclManager.cpp:1695-1703)
+    m3 = make([ins(SetLife, 0, life=ImmInt(3000)), ins(Nop, 99)], host)
+    _link(host, m3, boss=True)
+    run_frames(m3, 2)
+    assert host.boss_health == [(0, 0, 0)] * 8

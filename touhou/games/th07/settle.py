@@ -90,6 +90,9 @@ def _on_enemy_damaged(w: Th07World, ev: EnemyDamaged) -> None:
     """伤害入账: 得分 = min(raw,70)/5 (代码值), 樱点按 raw 伤害查公式。"""
     # 出处 old/touhou/engine/enemies.py:71-95 (EnemyManager.cpp:782-890)
     w.add_score(min(ev.raw_damage, 70) // 5 * 10)
+    if ev.is_boss:
+        # boss 受击帧(useColor2, EnemyManager.cpp:1049-1058): view ▼标记蓝化
+        w.frame_boss_damage = True
     # 樱点: (boss 或未 focus) 且非 bomb 中才产 (settle_damage 的 bomb_in_use 门控)
     if ev.by_bomb or w.bomb.is_in_use:
         return
@@ -415,6 +418,11 @@ def _on_item_collected(w: Th07World, ev: ItemCollected) -> None:
                 if (ev.y < w.items.poc_y or ev.auto_collect)
                 else POPUP_WHITE,
             )  # ItemManager.cpp:434
+        else:
+            # 未满樱: 弹红字 1000+100×符卡捕获数 (ItemManager.cpp:439-442)
+            _popup(
+                w, ev.x, ev.y, 1000 + g.spell_cards_captured * 100, POPUP_CHERRY_GAIN
+            )
         w.add_cherry_plus(1000 + g.spell_cards_captured * 100)
     elif ev.kind == ItemKind.CHERRY_SMALL:
         w.add_cherry_plus(30)

@@ -394,6 +394,19 @@ def test_auto_shoot_timer() -> None:
     assert all(c[0] != "shoot" for c in host.calls[n0:])
 
 
+def test_set_life_notifies_host() -> None:
+    """SetLife 对 v0 也透传 enemy_config(th07 boss0 彩段清零的挂点, EclManager.cpp:1695-1703)。"""
+
+    class CfgHost(RecHost):
+        def enemy_config(self, m: EclMachine, instr: EclInstr) -> None:
+            self.calls.append(("cfg", type(instr).__name__))
+
+    host = CfgHost()
+    m = make([ins(SetLife, 0, life=ImmInt(10)), ins(Nop, 99)], host)
+    run_frames(m, 2)
+    assert ("cfg", "SetLife") in host.calls
+
+
 # ---- 移动/插值 ----
 
 
