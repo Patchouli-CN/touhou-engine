@@ -80,6 +80,8 @@ class Th07SnapshotSystem(System["Th07World"]):
         self._stage_no = -1
         self._enemy_vis: dict[int, _EnemyVis] = {}
         self._item_gids: dict[int, int | None] = {}
+        # (sprite, offset) → image 键(gid 只依赖这两者, 查表/拼串一次缓存)
+        self._bullet_images: dict[tuple[int, int], str] = {}
         self._shot_vms: dict[
             int, tuple[AnmMachine, int]
         ] = {}  # 弹池下标 → (VM, 脚本键)
@@ -236,17 +238,23 @@ class Th07SnapshotSystem(System["Th07World"]):
 
     # ---- 敌弹(data.py 弹型表 → etama sprite; 出处 old sprite_view.py:776-815) ----
     def _emit_bullets(self, world: Th07World, ctx: FrameContext) -> None:
+        images = self._bullet_images
+        sprites = ctx.draw.sprites
         for b in world.bullets.alive():
-            gid = bullet_active_sprite_idx(b.sprite, b.sprite_offset) - _ETAMA_C_BASE
+            key = (b.sprite, b.sprite_offset)
+            image = images.get(key)
+            if image is None:
+                image = f"{_ETAMA}:{bullet_active_sprite_idx(*key) - _ETAMA_C_BASE}"
+                images[key] = image
             rot = 0.0
             if b.sprite in _ROTATE_BULLET_TYPES and b.vel.length > 0.05:
                 # 长条弹朝速度方向(sprite 原生朝上)
                 rot = math.atan2(b.vel.y, b.vel.x) + math.pi / 2
-            ctx.draw.sprites.append(
+            sprites.append(
                 SpriteDraw(
-                    f"{_ETAMA}:{gid}",
-                    _gx(b.pos.x),
-                    _gy(b.pos.y),
+                    image,
+                    GAME_X + b.pos.x,  # _gx 内联(热循环)
+                    GAME_Y + b.pos.y,
                     z=30.0,
                     rotation=rot,
                     alpha=_SPAWN_ALPHA if b.spawn_state else 255,

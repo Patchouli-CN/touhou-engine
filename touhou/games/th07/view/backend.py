@@ -14,11 +14,19 @@ from __future__ import annotations
 import io
 import math
 import os
+from operator import attrgetter
 
 import numpy as np
 import pygame
 
-from ....engine import Event, InputFrame, RenderBackend, SceneSnapshot, TextDraw
+from ....engine import (
+    Event,
+    InputFrame,
+    RenderBackend,
+    SceneSnapshot,
+    SpriteDraw,
+    TextDraw,
+)
 from ....engine.input import Button
 from ....engine.registry import TouhouRegistry
 from ....schemas.archive import Archive, load_entry
@@ -60,6 +68,20 @@ _KEYMAP: dict[int, Button] = {
 }
 
 _TRANSFORM_CAP = 2048  # 变换缓存上限(满即清, 弹幕量化键复用率高)
+
+#: 程序化键(bank 无贴图, 走各自的生成/缓存分支); 热路径先查表再过 == 链
+_PROCEDURAL = frozenset(
+    {
+        "misc:overlay",
+        "misc:hitpoint",
+        "misc:veil",
+        "misc:dialogbox",
+        "misc:powerbar",
+        "misc:bossbar",
+        "misc:bossseg",
+        "misc:bossmarkers",
+    }
+)
 
 
 def _db_to_gain(db_hundredths: int) -> float:
@@ -206,7 +228,14 @@ class PygameBackend(RenderBackend):
         gui_layer = False  # z 有序: 一过 Z_GUI 即关裁剪/停震屏偏移(Gui 层)
         # sprite/text 统一按 z 排序(text 缺省 z=1e9 恒在 sprite 上, 保旧行为;
         # 低 z 文本可被覆盖层压住, 如结局 FadingEffect 淡色覆盖, Ending.cpp:99-165)
-        for d in sorted((*snapshot.sprites, *snapshot.texts), key=lambda d: d.z):
+        draws = sorted((*snapshot.sprites, *snapshot.texts), key=attrgetter("z"))
+        n = len(draws)
+        get_surf = self.bank.get
+        blit = frame.blit
+        i = 0
+        while i < n:
+            d = draws[i]
+            i += 1
             if isinstance(d, TextDraw):
                 frame.set_clip(None)  # 文本从不裁剪(旧行为)
                 self._blit_text(frame, d.text, d.x, d.y, d.size, d.rgba)
@@ -214,11 +243,52 @@ class PygameBackend(RenderBackend):
             if chrome and not gui_layer and d.z >= Z_GUI:
                 frame.set_clip(None)
                 gui_layer = True
-            if gui_layer or (chrome and d.z >= Z_CLIP_GUI):
-                # Gui 层全窗口直画; 游戏区内 Gui 件(Z_CLIP_GUI 带)留裁剪不振屏
-                self._blit_sprite(frame, d, 0, 0)
-            else:
-                self._blit_sprite(frame, d, sdx, sdy)
+            shaken = not (gui_layer or (chrome and d.z >= Z_CLIP_GUI))
+            dx, dy = (sdx, sdy) if shaken else (0, 0)
+            if (
+                d.blend_mode == 0
+                and d.rotation == 0.0
+                and d.scale == 1.0
+                and d.scale_x == 1.0
+                and d.scale_y == 1.0
+                and d.alpha == 255
+                and d.color == (255, 255, 255)
+                and d.image not in _PROCEDURAL
+            ):
+                # 无变换/无调色的同图连续段(弹幕主体): 面/半宽取一次只 blit;
+                # 续段条件含 z 带一致(不跨裁剪/震屏档, 见 gui_layer 转换)
+                img = get_surf(d.image)
+                hw, hh = img.get_size()
+                hw, hh = hw >> 1, hh >> 1
+                image = d.image
+                d_gui, d_clip = d.z >= Z_GUI, d.z >= Z_CLIP_GUI
+                blit(img, (int(d.x + dx) - hw, int(d.y + dy) - hh))
+                while i < n:
+                    e = draws[i]
+                    if (
+                        type(e) is SpriteDraw
+                        and e.image == image
+                        and e.blend_mode == 0
+                        and e.rotation == 0.0
+                        and e.scale == 1.0
+                        and e.scale_x == 1.0
+                        and e.scale_y == 1.0
+                        and e.alpha == 255
+                        and e.color == (255, 255, 255)
+                        and (
+                            not chrome
+                            or (
+                                (e.z >= Z_GUI) == d_gui
+                                and (e.z >= Z_CLIP_GUI) == d_clip
+                            )
+                        )
+                    ):
+                        blit(img, (int(e.x + dx) - hw, int(e.y + dy) - hh))
+                        i += 1
+                    else:
+                        break
+                continue
+            self._blit_sprite(frame, d, dx, dy)
         frame.set_clip(None)
         if self._clock is not None:
             self._blit_text(
@@ -239,6 +309,32 @@ class PygameBackend(RenderBackend):
             self._clock.tick(60)
 
     def _blit_sprite(self, frame: pygame.Surface, spr, dx: int, dy: int) -> None:
+        if spr.image in _PROCEDURAL:
+            self._blit_procedural(frame, spr, dx, dy)
+            return
+        # 热路径(千弹级): 变换快进条件与 _transform 一致, 省一次调用
+        img = self.bank.get(spr.image)
+        sx = spr.scale * spr.scale_x
+        sy = spr.scale * spr.scale_y
+        if spr.rotation or sx != 1.0 or sy != 1.0:
+            img = self._transform(img, spr.rotation, sx, sy)
+        if spr.blend_mode == 1:
+            # 加算: rgb 按 per-pixel alpha 预乘再 BLEND_ADD (透明 texel 零贡献;
+            # GameWindow.cpp:671 SRCBLEND=SRCALPHA + AnmManager.cpp:705-715 DESTBLEND=ONE)
+            img = self._premul_add(img, spr.color, spr.alpha)
+            frame.blit(
+                img,
+                self._dest(img, spr.x + dx, spr.y + dy),
+                special_flags=pygame.BLEND_ADD,
+            )
+        elif spr.color != (255, 255, 255) or spr.alpha < 255:
+            img = self._tint(img, spr.color, spr.alpha)
+            frame.blit(img, self._dest(img, spr.x + dx, spr.y + dy))
+        else:
+            frame.blit(img, self._dest(img, spr.x + dx, spr.y + dy))
+
+    def _blit_procedural(self, frame: pygame.Surface, spr, dx: int, dy: int) -> None:
+        """程序化键(_PROCEDURAL)的绘制分支: 各自生成/缓存, 不进 bank。"""
         if spr.image == "misc:overlay":
             # 全屏单色覆盖(程序化, 结局 FadingEffect): color+alpha 由快照给
             veil = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
@@ -355,29 +451,12 @@ class PygameBackend(RenderBackend):
                     img.set_alpha(spr.alpha)
                 frame.blit(img, (int(spr.x) + dx, int(spr.y) + dy))
             return
-        img = self.bank.get(spr.image)
-        sx = spr.scale * spr.scale_x
-        sy = spr.scale * spr.scale_y
-        img = self._transform(img, spr.rotation, sx, sy)
-        if spr.blend_mode == 1:
-            # 加算: rgb 按 per-pixel alpha 预乘再 BLEND_ADD (透明 texel 零贡献;
-            # GameWindow.cpp:671 SRCBLEND=SRCALPHA + AnmManager.cpp:705-715 DESTBLEND=ONE)
-            img = self._premul_add(img, spr.color, spr.alpha)
-            frame.blit(
-                img,
-                self._dest(img, spr.x + dx, spr.y + dy),
-                special_flags=pygame.BLEND_ADD,
-            )
-        elif spr.color != (255, 255, 255) or spr.alpha < 255:
-            img = self._tint(img, spr.color, spr.alpha)
-            frame.blit(img, self._dest(img, spr.x + dx, spr.y + dy))
-        else:
-            frame.blit(img, self._dest(img, spr.x + dx, spr.y + dy))
 
     @staticmethod
     def _dest(img: pygame.Surface, x: float, y: float) -> tuple[int, int]:
         """中心锚点 → blit 左上角。"""
-        return (int(x) - img.get_width() // 2, int(y) - img.get_height() // 2)
+        w, h = img.get_size()
+        return (int(x) - (w >> 1), int(y) - (h >> 1))
 
     def _transform(
         self, img: pygame.Surface, rotation: float, sx: float, sy: float

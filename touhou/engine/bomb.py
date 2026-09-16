@@ -309,6 +309,8 @@ class BombField(msgspec.Struct, Generic[BombCtxT]):
         (模拟件 A 的事件订阅接缝)。出生态弹不吃炸弹盒 (C++ CheckBombGraze
         只在判定路径里触发)。
         """
+        if not self.clear_boxes:
+            return 0  # 无盒扫描全场是纯开销(千弹级每帧)
         bsize = Vec2(bullets.bullet_radius * 2.0, bullets.bullet_radius * 2.0)
         hits: list[tuple[Bullet, int]] = []
         for b in bullets.alive():
@@ -316,6 +318,8 @@ class BombField(msgspec.Struct, Generic[BombCtxT]):
                 continue
             if self.check_bomb_graze(b.pos, bsize):
                 hits.append((b, self.item_type))
+        if not hits:
+            return 0
         doomed = {id(b) for b, _ in hits}
         for b, item_type in hits:
             ctx.events.emit(BombClearedBullet(b.pos.x, b.pos.y, item_type))

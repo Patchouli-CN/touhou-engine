@@ -373,22 +373,47 @@ class BulletField(msgspec.Struct):
 
     def step(self, ctx: FrameContext) -> None:
         """推进全场一帧(OnUpdate: 出生态分支 → 命令 → 更新器 → 位移 → 出界)。"""
+        # 热循环(千弹级): 命令/更新器/发声按前置条件短路(条件与函数内早退一致),
+        # Bullet.step/off_screen 内联, 省去每弹每帧多次方法调用
+        ts = self.time_scale
+        player_pos = self.player_pos
+        sounds = self.frame_sounds
         for b in self._bullets:
             if b.spawn_state:
                 # 出生态: pos += vel/2 | /2.5 | /3; 倒计时未归 0 本帧到此为止
                 # (C++ timer2-- 被 update_timers 的 timer2++ 抵消, 等效 age 冻结)
-                b.pos = b.pos + b.vel / _SPAWN_MOVE_DIV[b.spawn_state]
+                v = b.vel
+                d = _SPAWN_MOVE_DIV[b.spawn_state]
+                b.pos = Vec2(b.pos.x + v.x / d, b.pos.y + v.y / d)
                 b.spawn_frames -= 1
                 if b.spawn_frames > 0:
                     continue
                 b.spawn_state = 0  # switch_break: 转 NORMAL, 当帧落入正常分支
-            self._collect_sound(b, b.run_commands(self.time_scale))
-            self._collect_sound(b, b.step_commands(self.player_pos, self.time_scale))
+            if b.cur_cmd_idx < len(b.commands):
+                n = b.run_commands(ts)
+                if n and b.sound_idx >= 0:
+                    sounds.extend([b.sound_idx] * n)
+            if b.ex_flags:
+                n = b.step_commands(player_pos, ts)
+                if n and b.sound_idx >= 0:
+                    sounds.extend([b.sound_idx] * n)
             if b.spawn_delay != 0:
                 b.spawn_delay -= 1
-            b.step()
+            v = b.vel
+            p = Vec2(
+                b.pos.x + v.x, b.pos.y + v.y
+            )  # Bullet.step 内联(Vec2 __add__ 展开)
+            b.pos = p
+            b.age += 1
             if b.spawn_delay == 0:
-                if b.off_screen():
+                # off_screen 内联: 以精灵半宽/半高为边距(GameManager::IsInBounds)
+                hw, hh = b.size.x * 0.5, b.size.y * 0.5
+                if not (
+                    p.x + hw >= 0.0
+                    and p.x - hw <= SCREEN_W
+                    and p.y + hh >= 0.0
+                    and p.y - hh <= SCREEN_H
+                ):
                     if b.ex_flags & OFFSCREEN_GRACE:
                         # 带转向/反弹命令的弹出界后宽限 128 帧(可以回来)
                         b.out_of_bounds_time += 1

@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ...engine.bomb import BombClearedBullet, BombStarted
-from ...engine.boss import SpellcardEnded, SpellcardFailed
+from ...engine.boss import SpellcardBegan, SpellcardEnded, SpellcardFailed
 from ...engine.bullets import BulletGraze, BulletHit
 from ...engine.enemies import EnemyDamaged, EnemyDied, EnemyTimerCallback
 from ...engine.events import Event
@@ -175,6 +175,11 @@ def _on_enemy_timer_callback(w: Th07World, ev: EnemyTimerCallback) -> None:
 
 
 # ---- 符卡 ----
+
+
+def _on_spellcard_began(w: Th07World, ev: SpellcardBegan) -> None:
+    """符卡宣言音: se_cat00 (Gui.cpp:414 ShowSpellcard 无条件播放)。"""
+    w.frame_sounds.append(SE_BOMB)
 
 
 def _on_spellcard_ended(w: Th07World, ev: SpellcardEnded) -> None:
@@ -525,6 +530,7 @@ _HANDLERS: dict[type[Event], Callable[[Th07World, Any], None]] = {
     EnemyDamaged: _on_enemy_damaged,
     EnemyDied: _on_enemy_died,
     EnemyTimerCallback: _on_enemy_timer_callback,
+    SpellcardBegan: _on_spellcard_began,
     SpellcardEnded: _on_spellcard_ended,
     SpellcardFailed: _on_spellcard_failed,
     BulletGraze: _on_graze,

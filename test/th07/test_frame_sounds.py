@@ -7,9 +7,14 @@ SE 号出处: 敌爆 i%2+2 (EnemyManager.cpp:1015), 撞弹 SOUND_PICHUN=4
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from touhou.engine import InputFrame
+from touhou.engine.boss import SpellcardBegan
 from touhou.engine.input import Button
 from touhou.engine.player import PlayerState
+from touhou.games.th07.bomb import BOMB_SOUNDS, SE_BOMB
+from touhou.games.th07.settle import settle
 from touhou.schemas.sound import SOUND_EFFECTS
 
 from .conftest import needs_data
@@ -25,6 +30,49 @@ def test_se_table_mapping() -> None:
     assert SOUND_EFFECTS[33].file_name == "se_bonus.wav"  # 结界破 B(既有)
     assert SOUND_EFFECTS[32].file_name == "se_border.wav"  # 结界激活 A
     assert SOUND_EFFECTS[36].file_name == "se_bonus2.wav"  # 结界激活 B
+    assert SOUND_EFFECTS[14].file_name == "se_cat00.wav"  # 符卡宣言/bomb 横幅
+
+
+def test_spellcard_declare_se_unit() -> None:
+    """SpellcardBegan 结算 → frame_sounds 含 14 (Gui.cpp:414 ShowSpellcard)。"""
+    w = SimpleNamespace(frame_sounds=[])
+    settle(w, SpellcardBegan(0, 3, 2280))
+    assert w.frame_sounds == [SE_BOMB]
+
+
+@needs_data
+def test_bomb_se_on_real_stage() -> None:
+    """Bomb 触发帧 frame_sounds 含机体音+14 (BombData.cpp timer==0 分支 + Gui.cpp:363)。"""
+    from touhou.games.th07.compose import compose
+    from touhou.games.th07.world import compose_world
+
+    w = compose_world(compose(), character=0, difficulty=1, seed=42)
+    for _ in range(600):  # 开局 SPAWNING 无敌, 先跑到 ALIVE
+        w.tick(InputFrame())
+        if w.player.state == PlayerState.ALIVE:
+            break
+    w.tick(InputFrame(pressed=frozenset({Button.BOMB})))
+    assert w.bomb.is_in_use
+    assert BOMB_SOUNDS[(0, False)] in w.frame_sounds  # 机体音 13=se_gun00
+    assert SE_BOMB in w.frame_sounds  # 横幅音 14=se_cat00
+
+
+@needs_data
+def test_spellcard_declare_se_on_real_stage() -> None:
+    """Hard 一面: 符卡宣言帧 frame_sounds 含 14 (Gui.cpp:414)。"""
+    from touhou.games.th07.compose import compose
+    from touhou.games.th07.world import compose_world
+
+    w = compose_world(compose(), character=0, difficulty=2, seed=42)
+    w.th07.lives = 99
+    held = InputFrame(held=frozenset({Button.SHOT}))
+    for _ in range(7500):
+        w.tick(held)
+        boss = w.boss
+        if boss is not None and boss.is_capturing:
+            assert SE_BOMB in w.frame_sounds  # 宣言当帧 flush 入账
+            return
+    raise AssertionError("7500 帧内无符卡宣言")
 
 
 @needs_data
