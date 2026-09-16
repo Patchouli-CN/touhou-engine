@@ -31,7 +31,7 @@ from .bomb import BOMB_SOUNDS, SE_BOMB
 from .data import DROP_TABLE, FULL_POWER, FULL_POWER_SCORE_BONUS, POWER_LEVELS
 from .items import ItemKind, next_needed_point_items_for_extend
 from .msg import apply_next_level, apply_stage_results
-from .player import settle_death
+from .player import BorderState, settle_death
 
 if TYPE_CHECKING:
     from .world import Th07World
@@ -76,6 +76,11 @@ def _graze_item_score(graze_total: int) -> int:
     """弹消点/STAR 的代码值分: graze/40*10+300 (ItemManager.cpp)。"""
     # 出处 old/touhou/games/th07/items.py:378
     return graze_total // 40 * 10 + 300
+
+
+def _bullet_item_kind(w: Th07World) -> int:
+    """清弹转出的道具类型: 6/Ex/Ph 面为星, 其余弹消点 (Gui.cpp:800/806/811)。"""
+    return ItemKind.STAR if w.stage_no >= 6 else ItemKind.POINT_BULLET
 
 
 # ---- 敌人伤害/击坠 ----
@@ -138,15 +143,16 @@ def despawn_bullets_bonus(w: Th07World) -> int:
     # 出处 old/touhou/games/th07/world.py:1735 (BulletManager.cpp:486-553)
     total = 0
     value = 2000
+    kind = _bullet_item_kind(w)
     for b in w.bullets.alive():
-        w.items.spawn(b.pos, ItemKind.POINT_BULLET, state=STATE_ATTRACT)
+        w.items.spawn(b.pos, kind, state=STATE_ATTRACT)
         total += value
         value = min(value + 20, 8000)
         b.dead = True
     for pt in w.lasers.remove_all(
         skip_flag4=False, spawn_items=True, spawn_at_pos=True
     ):
-        w.items.spawn(pt, ItemKind.POINT_BULLET, state=STATE_ATTRACT)
+        w.items.spawn(pt, kind, state=STATE_ATTRACT)
     return total
 
 
@@ -215,6 +221,11 @@ def _on_graze(w: Th07World, ev: Event) -> None:
     boss = w.boss
     if boss is not None and boss.is_capturing:
         boss.add_graze_bonus(2500 + (g.cherry - g.cherry_start) // 1500 * 20)
+    # 结界 ACTIVE 中擦弹: CherryMax/Cherry 低速+30 高速+80 (Player.cpp:1214-1226)
+    if w.player.border.has_border == BorderState.ACTIVE:
+        gain = 30 if w.player.focus else 80
+        g.increase_cherry_max(gain)
+        g.add_cherry(gain)
 
 
 # ---- 炸弹 ----
@@ -250,11 +261,12 @@ def _reach_full_power(w: Th07World, *, spellcard_exempt: bool) -> None:
     w.items.despawn_power_items()
     if spellcard_exempt and w.spellcard_active():
         return
+    kind = _bullet_item_kind(w)
     for b in w.bullets.alive():
-        w.items.spawn(b.pos, ItemKind.POINT_BULLET, state=STATE_ATTRACT)
+        w.items.spawn(b.pos, kind, state=STATE_ATTRACT)
         b.dead = True
     for pt in w.lasers.remove_all(skip_flag4=True, spawn_items=True):
-        w.items.spawn(pt, ItemKind.POINT_BULLET, state=STATE_ATTRACT)
+        w.items.spawn(pt, kind, state=STATE_ATTRACT)
 
 
 def _point_code(w: Th07World, ev: ItemCollected) -> int:
@@ -275,20 +287,32 @@ def _point_code(w: Th07World, ev: ItemCollected) -> int:
     return code - code % 10
 
 
+def _extend_from_points(w: Th07World) -> None:
+    """奖残一次: 满 8 残转 bomb, 双满无入账 (GameManager.cpp:100-118 ExtendFromPoints)。"""
+    g = w.th07
+    if int(g.lives) < 8:
+        g.lives += 1
+    elif int(g.bombs) < 8:
+        g.bombs += 1
+    else:
+        return
+    w.frame_sounds.append(28)  # SOUND_EXTEND
+    g.increase_subrank(200)
+
+
 def _point_extends(w: Th07World) -> None:
     """点道具残机: 累计过门槛可连升 (ItemManager.cpp:285-325)。"""
     g = w.th07
     if g.extends_from_point_items < 0:
         return
-    collected = g.point_items_collected_for_extend
     e = g.extends_from_point_items
-    n = 0
-    while collected >= next_needed_point_items_for_extend(e, w.difficulty):
-        n += 1
+    while g.point_items_collected_for_extend >= next_needed_point_items_for_extend(
+        e, w.difficulty
+    ):
+        _extend_from_points(w)
         e += 1
-    if n:
-        g.lives += n
-        g.extends_from_point_items += n
+    if e != g.extends_from_point_items:
+        g.extends_from_point_items = e
         g.next_needed_point_items_for_extend = next_needed_point_items_for_extend(
             e, w.difficulty
         )
@@ -336,7 +360,7 @@ def _on_item_collected(w: Th07World, ev: ItemCollected) -> None:
             g.bombs += 1
         g.increase_subrank(5)
     elif ev.kind == ItemKind.LIFE:
-        g.lives += 1
+        _extend_from_points(w)  # 1up 同走 ExtendFromPoints (ItemManager.cpp:377-379)
     elif ev.kind == ItemKind.FULL_POWER:
         if g.power < FULL_POWER:
             _reach_full_power(w, spellcard_exempt=False)
@@ -359,11 +383,20 @@ def _on_item_collected(w: Th07World, ev: ItemCollected) -> None:
         g.increase_subrank(10 if ev.y < 128.0 else 3)  # C++ 硬编码 128.0(非 pocY)
         _point_extends(w)
     elif ev.kind == ItemKind.POINT_BULLET:
-        # 非 bomb 中: 擦弹分 + cherryPlus+20 (ItemManager.cpp:397-408)
-        code = _graze_item_score(g.graze_in_total)
+        # ItemManager.cpp:395-421: 非 bomb 擦弹分/bomb 中 100 分; 樱点 bomb 外
+        # cherryPlus+20, bomb 中按道具槽位奇偶 cherryPlus+10 / cherry+10
+        if not w.bomb.is_in_use:
+            code = _graze_item_score(g.graze_in_total)
+        else:
+            code = 100
         w.add_score(code)
-        w.add_cherry_plus(20)
         _popup(w, ev.x, ev.y, code, POPUP_WHITE, 2)  # CreatePopup2 (:408)
+        if not w.bomb.is_in_use:
+            w.add_cherry_plus(20)
+        elif ev.slot & 1 == 0:
+            w.add_cherry_plus(10)
+        else:
+            g.add_cherry(10)
     elif ev.kind == ItemKind.CHERRY:
         if g.cherry >= g.cherry_max:
             # 满樱时按 POINT 计分(无樱差加成), ≤5000 显示 (ItemManager.cpp:428-436)

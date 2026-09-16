@@ -434,6 +434,7 @@ class Th07EnemyEclSystem(System[Th07World]):
         self.host = host
 
     def tick(self, world: Th07World, ctx: FrameContext) -> None:
+        self.field.tick_survival_rank(world.th07, msg_active=world.msg_active)
         self.field.step(ctx)
         self.host.sweep()
 

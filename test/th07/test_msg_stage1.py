@@ -124,7 +124,9 @@ def test_stage_one_msg_chain_to_next_level() -> None:
     assert panel is not None
     assert panel.stage == 1 and not panel.all_clear
     assert panel.rank_line == "Normal Rank  *1.0"
-    assert panel.penalty_line == "Player Penalty*0.5"
+    assert (
+        panel.penalty_line is None
+    )  # 默认 lifeCount=2(3 残)无惩罚 (Gui.cpp:1413-1421)
     assert [name for name, _ in panel.lines] == ["Clear", "Point", "Graze", "Cherry"]
     assert panel.lines[0][1] == 1000000  # Clear 行 = stage * 1000000 (显示值)
     assert panel.total > 0

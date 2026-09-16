@@ -29,6 +29,7 @@ class ItemCollected(Event, frozen=True, tag="item_collected"):
     x: float
     y: float
     auto_collect: bool = False  # 自动收集来的(旧: 仅结界收集标满分用)
+    slot: int = 0  # 收集时在场列表中的下标(C++ 的道具槽位 i, 供按槽奇偶的结算用)
 
 
 class ItemDropped(Event, frozen=True, tag="item_dropped"):
@@ -139,10 +140,12 @@ class ItemField(msgspec.Struct):
     def collect_pass(self, ctx: FrameContext) -> None:
         """收走本帧可收的道具并产 ItemCollected 事件(结算由作品订阅)。"""
         keep: list[Item] = []
-        for item in self.items:
+        for i, item in enumerate(self.items):
             if self.collect_pickup(item):
                 ctx.events.emit(
-                    ItemCollected(item.kind, item.pos.x, item.pos.y, item.auto_collect)
+                    ItemCollected(
+                        item.kind, item.pos.x, item.pos.y, item.auto_collect, i
+                    )
                 )
             else:
                 keep.append(item)

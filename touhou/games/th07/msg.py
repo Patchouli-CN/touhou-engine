@@ -118,7 +118,7 @@ def apply_stage_results(w: Th07World) -> None:
     奖励(代码值): Clear=stage*100000 + Graze*50 + Point*5000
     + Cherry(cherryMax-cherryStart); 6/7/8 面追加 Player=lives*2000000
     + Bomb=bombs*400000; 难度修正 Easy*0.5/Hard*1.2/Lunatic*1.5/Extra·
-    Phantasm*2; 初始残机 3→*0.5。
+    Phantasm*2; lifeCount 惩罚 初始 4 残*0.5、5 残*0.2。
     """
     # 出处 old/touhou/games/th07/world.py:1061 (Gui.cpp:972-991 + :1357-1417)
     g = w.th07
@@ -152,11 +152,15 @@ def apply_stage_results(w: Th07World) -> None:
         bonus = bonus * 15 // 10
     elif d >= 4:
         bonus <<= 1
-    # lifeCount 惩罚 (Gui.cpp:1387-1399): 固定 3(Extra/Phantasm/练习不受理), 恒 *0.5
+    # lifeCount 惩罚 (Gui.cpp:1413-1421): lifeCount=3(初始 4 残)*0.5, =4(初始 5 残)*0.2;
+    # sim initial_lives = lifeCount+1; Ex/Ph 强制 2 残/练习 9 残不落 case, 同 C++ 强制值
     penalty_line = None
-    if d < 4 and not w.practice:
+    if w.initial_lives == 4:
         bonus = bonus * 5 // 10
         penalty_line = "Player Penalty*0.5"
+    elif w.initial_lives == 5:
+        bonus = (bonus << 1) // 10
+        penalty_line = "Player Penalty*0.2"
     # Gui.cpp:1408-1417 ZUN bloat: AddScore ×10 (每次内部 //10, 合计 = bonus)
     for _ in range(10):
         w.add_score(bonus)

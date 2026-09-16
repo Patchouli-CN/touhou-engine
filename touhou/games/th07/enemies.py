@@ -11,6 +11,7 @@ import msgspec
 from ...engine.enemies import Enemy, EnemyField
 from .ecl_host import Th07EclHost
 from .ecl_state import template_shooter
+from .globals import Th07Globals
 
 
 class Th07EnemyField(EnemyField):
@@ -20,6 +21,21 @@ class Th07EnemyField(EnemyField):
     is_reimu_a: bool = False
     host: Th07EclHost | None = None
     damage_timers: dict[int, int] = msgspec.field(default_factory=dict)
+    timeline_time: int = 0  # 本关帧计数(EnemyManager timelineTime, 换关清零)
+
+    def tick_survival_rank(self, g: Th07Globals, *, msg_active: bool) -> None:
+        """生存 rank 缓涨: 非对话中每 (2400-残机×240) 帧 subrank+100。"""
+        # EnemyManager.cpp:624-632(判定在 OnUpdate 顶, 计数在 :1113 无条件 ++)
+        if not msg_active:
+            limit = 2400 - int(g.lives) * 240
+            if self.timeline_time > 0 and limit > 0 and self.timeline_time % limit == 0:
+                g.increase_subrank(100)
+        self.timeline_time += 1
+
+    def clear(self) -> None:
+        """清空 + 本关帧计数归零(EnemyManager 每面 RegisterChain 重建)。"""
+        super().clear()
+        self.timeline_time = 0
 
     def adjust_damage(self, e: Enemy, damage: int, *, bomb_damage: bool) -> int:
         """记伤害时刻 + ReimuA 高面伤害减免 (EnemyManager.cpp:815-835)。"""
