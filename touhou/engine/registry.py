@@ -41,8 +41,10 @@ class TouhouRegistry:
     _registry_save: dict[str, SaveSemantics] = {}
     #: 渲染后端按"后端名"登记(与作品名无关的正交维度), 值是构造器
     _registry_renderer: dict[str, Callable[..., RenderBackend]] = {}
-    #: 容器格式按"格式名"登记(schemas 出规格, 这里只做绑定)
+    #: 容器格式按"格式名"登记(schemas 出规格, 框架层做绑定)
     _registry_archive: dict[str, ArchiveFormat] = {}
+    #: 默认作品(作品包在自己注册处显式声明, 消费方一律 default_game() 解析)
+    _default_game: str | None = None
 
     @classmethod
     def _claim(cls, registry: dict, game: str, kind: str) -> None:
@@ -146,6 +148,22 @@ class TouhouRegistry:
     def registered_games(cls) -> tuple[str, ...]:
         """已登记装配件的作品名单。"""
         return tuple(sorted(cls._registry_title))
+
+    @classmethod
+    def register_default_game(cls, game: str) -> None:
+        """声明框架默认作品(作品包在自己注册处调一次; 重复声明 fail fast)。"""
+        if cls._default_game is not None:
+            raise ValueError(
+                f"默认作品重复声明被拒: 已是 {cls._default_game!r}, 收到 {game!r}"
+            )
+        cls._default_game = game
+
+    @classmethod
+    def default_game(cls) -> str:
+        """框架默认作品名; 无声明抛清晰错误(默认作品是显式决策, 不是顺序推导)。"""
+        if cls._default_game is None:
+            raise KeyError("尚无作品声明默认(作品包注册处调 register_default_game)")
+        return cls._default_game
 
     @classmethod
     def create_game(cls, game: str) -> GameAssembly:

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Protocol
 
 import msgspec
 
 from .core import World
+from .input import InputFrame
 
 
 class GameData(msgspec.Struct, frozen=True):
@@ -69,7 +71,12 @@ class WindowApp(Protocol):
         seed: int | None = None,
         scale: int | None = None,
         renderer: str | None = None,
-    ) -> object: ...
+        world: World | None = None,
+        input_source: Callable[[World], InputFrame] | None = None,
+    ) -> object:
+        ...
+        # world: 注入已组装的世界(观战模式由 apis 组世界并包门面, 缺省内部组装);
+        # input_source: 逐帧输入源(观战策略; 缺省键盘)
 
 
 class GameAssembly(msgspec.Struct, frozen=True):

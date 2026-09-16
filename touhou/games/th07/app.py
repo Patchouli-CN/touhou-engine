@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from importlib import import_module
 from typing import cast
 
-from ...engine import GameAssembly, TouhouRegistry, WindowApp
+from ...engine import GameAssembly, InputFrame, TouhouRegistry, WindowApp, World
 
 
 def _view() -> WindowApp:
@@ -38,8 +39,10 @@ class Th07App:
         seed: int | None = None,
         scale: int | None = None,
         renderer: str | None = None,
+        world: World | None = None,
+        input_source: Callable[[World], InputFrame] | None = None,
     ) -> object:
-        """开窗口直进一局(跳过标题), 返回打完的世界。"""
+        """开窗口直进一局(跳过标题), 返回打完的世界; world/input_source 为观战缝。"""
         return _view().run_game(
             assembly,
             character=character,
@@ -48,4 +51,6 @@ class Th07App:
             seed=seed,
             scale=scale,
             renderer=renderer,
+            world=world,
+            input_source=input_source,
         )

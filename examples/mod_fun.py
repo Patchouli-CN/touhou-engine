@@ -10,11 +10,14 @@
 
 from __future__ import annotations
 
+import os
+
 from touhou import Input, TouhouWorld
 from touhou.apis.modding import ModApi
 
 
 def main() -> None:
+    frames = int(os.environ.get("MOD_FUN_FRAMES", "3000"))
     tw = TouhouWorld(difficulty="Lunatic", headless=True, seed=7)
     stream = tw.run()
     mods = ModApi(tw.game)  # 官方魔改口子: 包住对局门面, 叠加写操作面
@@ -37,7 +40,7 @@ def main() -> None:
     stream.policy = godmode_and_danmaku
     for ev in stream:
         print(f"[f{ev.frame:6d}] {ev.kind} {ev.name or ''}")
-        if tw.game.frame >= 3000:
+        if tw.game.frame >= frames:
             break
     g = tw.game
     # 无敌挂验证: 全程公共属性读回, lives 没掉过

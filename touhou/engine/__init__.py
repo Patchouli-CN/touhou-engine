@@ -169,6 +169,7 @@ from .shots import (
 from .snapshot import (
     EffectDraw,
     SceneSnapshot,
+    ShapeDraw,
     SnapshotBuilder,
     SpriteDraw,
     TextDraw,
@@ -306,6 +307,7 @@ __all__ = [
     "ShotMovementSystem",
     "ShotTimer",
     "Slot",
+    "ShapeDraw",
     "SnapshotBuilder",
     "SpellcardBegan",
     "SpellcardEnded",

@@ -43,6 +43,7 @@ class GameScene(Scene):
         music: BgmPlayer | None = None,
         bg: StageBg | None = None,
         anm_version: int = 2,
+        input_source: Callable[[Th07World], InputFrame] | None = None,
     ) -> None:
         super().__init__()
         self.world = world
@@ -53,6 +54,9 @@ class GameScene(Scene):
         self._music = music
         self._bg = bg
         self._anm_version = anm_version
+        # 逐帧输入源(观战策略, apis 注入): 主路径覆盖键盘输入, 暂停/续关菜单
+        # 与 Esc 仍走键盘
+        self._input_source = input_source
         self._bg_surf = None
         self._bgm = StageBgm(music, world.archive) if music is not None else None
         self._events: list[Event] = []
@@ -83,6 +87,7 @@ class GameScene(Scene):
             base.sprites + tuple(sprites),
             base.texts + tuple(texts),
             base.effects,
+            base.shapes,
         )
 
     def _step_bg(self) -> None:
@@ -119,6 +124,8 @@ class GameScene(Scene):
             )
             self._frame_sounds = [SE_PAUSED]
             return
+        if self._input_source is not None:
+            inp = self._input_source(self.world)  # 观战: 策略输入覆盖键盘
         prev = self._snapshot
         self._snapshot = self.world.tick(inp)
         self._merge_fx()
@@ -191,6 +198,7 @@ class GameScene(Scene):
             base.sprites + tuple(overlay),
             base.texts,
             base.effects,
+            base.shapes,
         )
 
     def events(self) -> tuple[Event, ...]:

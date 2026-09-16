@@ -45,6 +45,9 @@ TouhouRegistry.register(
     save=SaveSemantics(score_file="score.json"),
 )
 
+#: 框架默认作品显式声明(消费方经 TouhouRegistry.default_game() 解析)
+TouhouRegistry.register_default_game("th07")
+
 
 def compose() -> GameAssembly:
     """拼出 th07 的可运行装配(登记在 import 时发生, 组装在注册表)。"""

@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from ....engine import GameAssembly, RenderBackend, TouhouRegistry, open_archive
+from ....engine import (
+    GameAssembly,
+    InputFrame,
+    RenderBackend,
+    TouhouRegistry,
+    open_archive,
+)
 from ....engine.score_store import ScoreStore
 from ..config import Th07Config, load_config, save_config
 from ..replay import ReplayEntry, ReplayRecorder, StageMark, list_replays
@@ -289,8 +295,13 @@ def run_game(
     backend: RenderBackend | None = None,
     renderer: str | None = None,
     world: Th07World | None = None,
+    input_source: Callable[[Th07World], InputFrame] | None = None,
 ) -> Th07World:
-    """开窗口直进一局(跳过标题); 返回打完的世界。"""
+    """开窗口直进一局(跳过标题); 返回打完的世界。
+
+    world: 注入已组装的世界(观战模式由 apis 组世界并包门面); input_source:
+    逐帧输入源(观战策略, Esc/暂停/续关菜单仍走键盘)。
+    """
     if world is None:
         world = compose_world(
             assembly,
@@ -317,6 +328,7 @@ def run_game(
         fx=GameFx(world, anm_version=assembly.anm_version),
         music=music,
         bg=StageBg(world.archive, anm_version=assembly.anm_version),
+        input_source=input_source,
     )
     run_scenes(scene, backend, title=assembly.title, scale=scale, music=music)
     return world

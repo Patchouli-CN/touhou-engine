@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import msgspec
 
-from .context import FrameContext
+from .context import CommandQueue, FrameContext
 from .snapshot import SceneSnapshot
 
 if TYPE_CHECKING:
@@ -19,6 +19,8 @@ class World(msgspec.Struct):
     """模拟状态容器基类, 作品子类加自己的字段。"""
 
     frame: int = 0
+    #: 外部(apis 层)写操作命令队列: 任意线程可入队, tick_frame 帧边界统一应用
+    commands: CommandQueue = msgspec.field(default_factory=CommandQueue)
 
     @classmethod
     def compose(cls, assembly: GameAssembly, **params: Any) -> World:
@@ -64,6 +66,7 @@ class Pipeline(Generic[W]):
 
 def tick_frame(world: W, pipeline: Pipeline[W], ctx: FrameContext) -> SceneSnapshot:
     """一帧主循环: 帧边界应用命令 → 槽位序跑 system → 出快照 → 帧末清空事件。"""
+    world.commands.apply(world, ctx)  # 外部(apis)入队的写操作, 与帧内命令同一边界
     ctx.commands.apply(world, ctx)
     for slot in Slot:
         for system in pipeline.systems(slot):

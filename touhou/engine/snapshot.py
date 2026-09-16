@@ -45,6 +45,21 @@ class EffectDraw(msgspec.Struct, frozen=True):
     frame: int = 0
 
 
+class ShapeDraw(msgspec.Struct, frozen=True):
+    """一个几何覆盖层绘制项(mod 导航线/安全圈等; 后端可选消费, 不消费静默丢弃)。
+
+    kind: "line"(points 两端点) / "circle"(points[0] 圆心 + radius) /
+    "polyline"(points 顺次相连, closed 首尾闭合)。
+    """
+
+    kind: str
+    points: tuple[tuple[float, float], ...]
+    radius: float = 0.0
+    color: tuple[int, int, int] = (255, 255, 255)
+    width: int = 1
+    closed: bool = False
+
+
 class SceneSnapshot(msgspec.Struct, frozen=True):
     """一帧要画什么: 渲染后端只认它 + 事件流, 拿不到 world 本体。"""
 
@@ -52,6 +67,7 @@ class SceneSnapshot(msgspec.Struct, frozen=True):
     sprites: tuple[SpriteDraw, ...] = ()
     texts: tuple[TextDraw, ...] = ()
     effects: tuple[EffectDraw, ...] = ()
+    shapes: tuple[ShapeDraw, ...] = ()
 
 
 class SnapshotBuilder:
@@ -61,13 +77,19 @@ class SnapshotBuilder:
         self.sprites: list[SpriteDraw] = []
         self.texts: list[TextDraw] = []
         self.effects: list[EffectDraw] = []
+        self.shapes: list[ShapeDraw] = []
 
     def build(self, frame: int) -> SceneSnapshot:
         """冻结成本帧快照, 清空收集器留给下一帧。"""
         snapshot = SceneSnapshot(
-            frame, tuple(self.sprites), tuple(self.texts), tuple(self.effects)
+            frame,
+            tuple(self.sprites),
+            tuple(self.texts),
+            tuple(self.effects),
+            tuple(self.shapes),
         )
         self.sprites.clear()
         self.texts.clear()
         self.effects.clear()
+        self.shapes.clear()
         return snapshot

@@ -411,6 +411,7 @@ class ReplayWatchScene(Scene):
             base.sprites + self._fx_sprites,
             base.texts + self._fx_texts,
             base.effects,
+            base.shapes,
         )
 
     @property

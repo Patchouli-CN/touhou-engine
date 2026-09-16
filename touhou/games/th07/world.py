@@ -217,6 +217,40 @@ class Th07World(World):
         b = self.boss
         return b is not None and bool(b.is_active) and b.spellcard_idx >= 0
 
+    # ---- apis 钩子(框架层按名 duck 探测, 缺了即该作品不支持) ----
+    def stats(self) -> dict[str, float]:
+        """对外读数(touhou/apis 观测面): 残机/炸弹/火力/擦弹/樱点等标量副本。"""
+        g = self.th07
+        return {
+            "lives": g.lives,
+            "bombs": g.bombs,
+            "power": g.power,
+            "graze": float(g.graze_in_total),
+            "cherry": float(g.cherry),
+            "cherry_max": float(g.cherry_max),
+            "deaths": float(g.deaths),
+            "bombs_used": g.bombs_used,
+            "spell_cards_captured": float(g.spell_cards_captured),
+        }
+
+    def set_stat(self, name: str, value: float) -> None:
+        """对外直改(touhou/apis 命令队列用): 仅 lives/bombs/power/cherry 可写。"""
+        if name not in ("lives", "bombs", "power", "cherry"):
+            raise KeyError(f"set_stat 不支持 {name!r}(可写: lives/bombs/power/cherry)")
+        setattr(self.th07, name, value)
+
+    def can_continue(self) -> bool:
+        """GameOver 后是否可续关(续关菜单门控)。"""
+        return result_flow.continue_available(self)
+
+    def finalize_game_over(self) -> None:
+        """GameOver 后不续关直接进结算(= 续关菜单选 No)。"""
+        result_flow.finalize_game_over(self)
+
+    def finish_ending(self) -> None:
+        """结局看完 → 总结算(窗口版由确认键触发, headless 由调用方收尾)。"""
+        result_flow.finish_ending(self)
+
     def add_score(self, code: int) -> None:
         """入账代码值分数(tick 期间帧上下文必在)。"""
         assert self.ctx is not None

@@ -6,7 +6,7 @@
 最近威胁很近时按 focus 精控。
 
 近似在哪(天花板, 不是 bug):
-- 线性外推用的是子弹当前 angle/speed 的换算向量, 对 ECL 命令弹
+- 线性外推用的是子弹当前速度向量, 对 ECL 命令弹
   (变速 TARGET_VEL / 转向 DIR_CHANGE / 角速度 TARGET_ANGLE) 只是瞬时
   近似, 弹转向/加速后预测即失效;
 - 只看敌弹, 不看激光与敌人体术;
@@ -18,7 +18,6 @@ headless 跑数据(测试/调参用, 无需窗口):
     DODGE_AI_HEADLESS=1 uv run python examples/dodge_ai.py
     帧数用环境变量 DODGE_AI_FRAMES 覆盖(默认 3600 ≈ 1 分钟)。
 """
-
 from __future__ import annotations
 
 import math
@@ -86,7 +85,7 @@ def dodge_policy(game: Game) -> Input:
 def main() -> None:
     if os.environ.get("DODGE_AI_HEADLESS") != "1":
         # 窗口观战: 跳过标题菜单直接进游戏, 每帧输入来自 dodge_policy;
-        # Esc 中止, 终局(通关/GameOver)自动退出。观战自动录像(replays/)。
+        # Esc 中止, 终局(通关/GameOver)自动退出
         tw = TouhouWorld(
             character="ReimuA",
             difficulty="Normal",

@@ -5,15 +5,14 @@
 观战变体(窗口里看 AI 打): 去掉 headless=True 改为
 ``TouhouWorld(..., headless=False, auto_input=my_policy)`` 再 ``tw.run()``
 —— 窗口照开但跳过标题菜单直接进游戏, 每帧输入来自策略, Esc 中止观战。
-headless 侧顺带录像: ``stream.save_replay()`` 存下喂过的每帧输入
-(engine/replay.py 格式, 可在窗口版 Replay 菜单播放)。
+帧数用环境变量 AUTO_PLAY_FRAMES 覆盖(默认 3600 ≈ 1 分钟)。
 """
 
 from __future__ import annotations
 
-import random
+import os
 
-from touhou import Input, TouhouWorld, Game
+from touhou import Game, Input, TouhouWorld
 
 
 def my_policy(game: Game) -> Input:
@@ -30,12 +29,16 @@ def my_policy(game: Game) -> Input:
 
 
 def main() -> None:
-    tw = TouhouWorld(
-        difficulty="Normal", lives=3, headless=False, seed=42, auto_input=my_policy
-    )
-    tw.run()
+    frames = int(os.environ.get("AUTO_PLAY_FRAMES", "3600"))
+    tw = TouhouWorld(difficulty="Normal", lives=3, headless=True, seed=42)
+    stream = tw.stream(my_policy)
+    for ev in stream:
+        print(f"[f{ev.frame:6d}] {ev.kind} {ev.name or ''}")
+        if tw.game.frame >= frames:
+            break
+    g = tw.game
+    print(f"\nframe={g.frame} lives={g.lives} score={g.score} phase={g.phase.value}")
 
 
 if __name__ == "__main__":
-    random.seed(0)
     main()

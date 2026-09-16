@@ -240,6 +240,25 @@ def test_run_app_option_chain(tmp_path) -> None:
 
 
 @needs_data
+def test_run_game_spectate_input_source() -> None:
+    """观战缝: run_game 注入 input_source, 每帧输入来自策略而非键盘。"""
+    from touhou.engine.input import Button
+    from touhou.games.th07.compose import compose
+    from touhou.games.th07.view.app import run_game
+
+    calls: list[int] = []
+
+    def policy(w: object) -> InputFrame:
+        calls.append(1)
+        return InputFrame(held=frozenset({Button.SHOT, Button.RIGHT}))
+
+    backend = _StubBackend([_IDLE] * 60 + [None])  # 60 帧后关窗
+    world = run_game(compose(), seed=42, backend=backend, input_source=policy)
+    assert len(calls) == 60  # 主路径每帧问策略要输入
+    assert world.frame == 61  # 首帧快照 + 60 步
+
+
+@needs_data
 def test_run_app_musicroom_chain(tmp_path) -> None:
     """run_app 全链: 主菜单→Music Room→选曲确认→返回(光标停 Music Room)→Quit。"""
     from touhou.games.th07.compose import compose
