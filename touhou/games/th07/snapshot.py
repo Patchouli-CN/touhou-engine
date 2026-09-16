@@ -22,7 +22,7 @@ from ...schemas.anm import parse_anm
 from ...schemas.archive import load_entry
 from .data import bullet_active_sprite_idx
 from .ecl_state import EnemyExtras
-from .hud import emit_hud
+from .hud import BossBar, emit_hud
 from .player import OptionState
 
 if TYPE_CHECKING:
@@ -82,6 +82,7 @@ class Th07SnapshotSystem(System["Th07World"]):
             int, tuple[AnmMachine, int]
         ] = {}  # 弹池下标 → (VM, 脚本键)
         self._option_vms: list[AnmMachine] = []
+        self._boss_bar = BossBar(self._rng)  # boss 血条(框 VM + 缓动状态)
 
     # ---- anm 数据(惰性; 无 archive → 全 None → 语义键兜底) ----
     def _bank(self, world: Th07World, name: str) -> AnmBank | None:
@@ -424,20 +425,14 @@ class Th07SnapshotSystem(System["Th07World"]):
     # ---- HUD(贴图面板, hud.py) + boss 条/结算/终局文本 ----
     def _emit_hud(self, world: Th07World, ctx: FrameContext) -> None:
         emit_hud(world, ctx.draw.sprites, lambda name: self._bank(world, name))
+        # boss 血条: SET_BOSS 建档即亮(道中 boss 同), 对话中不画 (Gui.cpp:1835-1917)
+        self._boss_bar.step(
+            world,
+            ctx.draw.sprites,
+            ctx.draw.texts,
+            lambda name: self._bank(world, name),
+        )
         texts = ctx.draw.texts
-        boss = world.boss
-        if boss is not None and boss.is_active and boss.max_life > 0:
-            frac = max(0.0, min(1.0, boss.life / boss.max_life))
-            filled = int(frac * 32)
-            texts.append(
-                TextDraw(
-                    f"BOSS [{'=' * filled}{' ' * (32 - filled)}]",
-                    float(GAME_X + 8),
-                    float(GAME_Y + 4),
-                    size=13,
-                    rgba=(255, 90, 110, 255),
-                )
-            )
         self._emit_stage_results(world, ctx)
         if world.game_over:
             texts.append(

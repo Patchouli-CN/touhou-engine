@@ -258,6 +258,9 @@ def run_app(
         return GameScene(
             world,
             on_exit=after_game,
+            # 暂停菜单 Return to Title: 弃局直回主菜单, 不进结算不入榜
+            # (SUPERVISOR_STATE_MAINMENU, AsciiManager.cpp:755-759)
+            on_quit=lambda: make_title(cursor=0),
             recorder=recorder,
             fx=fx,
             music=music,

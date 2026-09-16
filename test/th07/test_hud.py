@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from touhou.engine import FrameContext, InputFrame, Rng, SceneSnapshot, SpriteDraw
+from touhou.engine.input import Button
 from touhou.engine.score_store import make_highscore_record
 from touhou.games.th07.player import BorderState
 from touhou.games.th07.snapshot import Th07SnapshotSystem
@@ -265,3 +266,98 @@ def test_real_data_hud_full_chain() -> None:
         assert frame.get_at((16, 240))[:3] != (8, 12, 30)
     finally:
         b.close()
+
+
+# ---- boss 血条 (Gui.cpp:1225-1292 + :1835-1917) ----
+
+
+def _tick_bar(world: Th07World, sys: Th07SnapshotSystem, frames: int) -> FrameContext:
+    """跑 n 帧生产, 返回末帧上下文。"""
+    ctx = FrameContext(Rng(0), InputFrame())
+    for _ in range(frames):
+        ctx = FrameContext(Rng(0), InputFrame())
+        sys.tick(world, ctx)
+    return ctx
+
+
+def test_boss_bar_shows_without_spellcard() -> None:
+    """道中 boss(无符卡, is_active=0)也亮血条: SET_BOSS 建档即画 (EclManager.cpp:1509-1517)。"""
+    from touhou.engine.boss import BossField
+
+    w = Th07World(character=0, difficulty=1)
+    w.boss = BossField()
+    w.boss.set_life(1000.0)
+    sys = Th07SnapshotSystem()
+    ctx = _tick_bar(w, sys, 200)  # alpha 淡入 64 帧 + 条长缓动 100 帧
+    bars = [s for s in ctx.draw.sprites if s.image == "misc:bossbar"]
+    assert bars, "道中 boss 无符卡也必须出血条"
+    assert bars[0].scale_x > 300.0  # 满血缓动到位(满宽 320)
+    assert bars[0].alpha == 255
+    assert bars[0].x == 64.0 and bars[0].y == 19.0  # Gui.cpp:1838-1842
+    # 扣血 → 条长缩(0.02/帧)
+    w.boss.life = 500.0
+    ctx = _tick_bar(w, sys, 200)
+    bar = next(s for s in ctx.draw.sprites if s.image == "misc:bossbar")
+    assert 100.0 < bar.scale_x < 200.0
+    # boss 退场 → 淡出后不再画
+    w.boss = None
+    ctx = _tick_bar(w, sys, 100)
+    assert not [s for s in ctx.draw.sprites if s.image == "misc:bossbar"]
+
+
+def test_boss_bar_hidden_during_dialog() -> None:
+    """对话中整段不画血条 (Gui.cpp:1835 msg.currentMsgIdx<0 门控)。"""
+    from types import SimpleNamespace
+
+    from touhou.engine.boss import BossField
+
+    w = Th07World(character=0, difficulty=1)
+    w.boss = BossField()
+    w.boss.set_life(1000.0)
+    sys = Th07SnapshotSystem()
+    _tick_bar(w, sys, 200)
+    w.msg_vm = SimpleNamespace(active=True)  # type: ignore[assignment]  # duck: 只读 .active
+    ctx = _tick_bar(w, sys, 1)
+    assert not [s for s in ctx.draw.sprites if s.image == "misc:bossbar"]
+
+
+def test_boss_bar_spellcard_timer() -> None:
+    """符卡剩余秒: 两位数 + 分档色 (Gui.cpp:1889-1916, g_SpellcardTimeColors)。"""
+    from touhou.engine.boss import BossField
+
+    w = Th07World(character=0, difficulty=1)
+    w.boss = BossField()
+    w.boss.set_life(1000.0)
+    w.boss.is_active = 1
+    w.boss.spellcard_idx = 0
+    w.boss.seconds_remaining = 42
+    sys = Th07SnapshotSystem()
+    ctx = _tick_bar(w, sys, 200)
+    timer = [t for t in ctx.draw.texts if t.text == "42"]
+    assert timer and timer[0].x == 384.0 and timer[0].y == 16.0
+    assert timer[0].rgba[:3] == (0xA0, 0xD0, 0xFF)  # >=20 档
+    # 非符卡(道中)不出秒数
+    w.boss.is_active = 0
+    w.boss.spellcard_idx = -1
+    ctx = _tick_bar(w, sys, 1)
+    assert not [t for t in ctx.draw.texts if t.text == "42"]
+
+
+@needs_data
+def test_midboss_bar_real_stage() -> None:
+    """真一面道中(琪露诺, 无符卡): 血条 + front.anm 框贴图都出 (B#6 回归钉)。"""
+    from touhou.games.th07.compose import compose
+    from touhou.games.th07.world import compose_world
+
+    w = compose_world(compose(), seed=42, difficulty=1)
+    w.th07.lives = 99
+    seen_bar = seen_frame = False
+    for _ in range(3200):
+        snap = w.tick(InputFrame(held=frozenset({Button.SHOT})))
+        if w.boss is not None and not w.boss.is_active:  # 道中(无符卡)区间
+            for s in snap.sprites:
+                if s.image == "misc:bossbar" and s.scale_x > 0:
+                    seen_bar = True
+                if s.image == "front.anm:9":  # 血条框 (vms0[11] 稳态 sprite)
+                    seen_frame = True
+    assert seen_bar and seen_frame

@@ -393,7 +393,7 @@ def test_musicroom_confirm_plays_track() -> None:
 
 @needs_data
 def test_game_scene_bgm_chain() -> None:
-    """真一面 GameScene: 进场面曲 → Esc 暂停联动 → on_exit 停。"""
+    """真一面 GameScene: 进场面曲 → Esc 暂停菜单联动 BGM → on_exit 停。"""
     from touhou.games.th07.compose import compose
     from touhou.games.th07.view.game_scene import GameScene
     from touhou.games.th07.world import compose_world
@@ -404,9 +404,13 @@ def test_game_scene_bgm_chain() -> None:
     )
     assert rec.log == [("play", "th07_02")]
     pause = InputFrame(pressed=frozenset({Button.PAUSE}))
-    scene.step(pause)
-    scene.step(pause)
-    assert rec.log[-2:] == [("pause",), ("unpause",)]
+    scene.step(pause)  # 开菜单 → AUDIO_PAUSE (PauseMenu 内)
+    assert rec.log[-1] == ("pause",)
+    scene.step(pause)  # 菜单中再按 Esc = 直退, 20 帧离场后 AUDIO_UNPAUSE
+    for _ in range(25):
+        scene.step(_IDLE)
+    assert not scene.paused
+    assert rec.log[-1] == ("unpause",)
     scene.on_exit()
     assert rec.log[-1] == ("stop",)
 

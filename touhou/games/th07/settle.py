@@ -110,6 +110,8 @@ def _on_enemy_died(w: Th07World, ev: EnemyDied) -> None:
     """击坠入账: 得分 + 掉落(登记号/随机表) + boss 非符卡击坠的清场奖励。"""
     # 出处 old/touhou/games/th07/world.py:1770 (_kill_reward)
     assert w.host is not None
+    # 敌爆音(enemy 槽位奇偶两档, 同帧去重在后端; EnemyManager.cpp:1015)
+    w.frame_sounds.append(ev.enemy_id % 2 + 2)
     if ev.scored:
         w.add_score(ev.score)  # AddScore(enemy->score)
     pos = Vec2(ev.x, ev.y)
@@ -409,9 +411,10 @@ def _on_player_hit(w: Th07World, ev: Event) -> None:
 
 
 def _on_player_died(w: Th07World, ev: PlayerDied) -> None:
-    """死亡: 记死亡点 + 清激光(旧世界层命中即 lasers.clear)。"""
+    """死亡: 记死亡点 + 清激光(旧世界层命中即 lasers.clear) + 撞弹音。"""
     w.death_pos = Vec2(ev.x, ev.y)
     w.lasers.clear()
+    w.frame_sounds.append(4)  # SOUND_PICHUN (Player.cpp:1237 Player::Die)
 
 
 def _on_player_death_settled(w: Th07World, ev: PlayerDeathSettled) -> None:

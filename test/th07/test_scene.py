@@ -95,7 +95,7 @@ def test_runner_quit_on_window_close() -> None:
 
 @needs_data
 def test_game_scene_tick_pause_and_result() -> None:
-    """真一面: step 推进世界; Esc 暂停冻结; result 出现即 done(结算画面在装配处)。"""
+    """真一面: step 推进世界; Esc 开暂停菜单冻结; 再 Esc 经 20 帧离场恢复; result 即 done。"""
     from touhou.games.th07.compose import compose
     from touhou.games.th07.world import compose_world
 
@@ -104,19 +104,68 @@ def test_game_scene_tick_pause_and_result() -> None:
     frame0 = scene.snapshot().frame
     scene.step(_IDLE)
     assert scene.snapshot().frame == frame0 + 1
-    # Esc 暂停: 世界不走, 快照不换
+    # Esc 开暂停菜单: 世界不走, 快照帧号冻结; 开菜单帧播 SOUND_PAUSED
     scene.step(InputFrame(pressed=frozenset({Button.PAUSE})))
     assert scene.paused
+    assert scene.drain_sounds() == [37]
     snap = scene.snapshot()
     scene.step(_IDLE)
-    assert scene.snapshot() is snap
+    assert scene.snapshot().frame == snap.frame
+    # 再按 Esc = 直退 (AsciiManager.cpp:448-460), 20 帧离场后恢复
     scene.step(InputFrame(pressed=frozenset({Button.PAUSE})))
+    assert scene.paused
+    for _ in range(25):
+        scene.step(_IDLE)
     assert not scene.paused
+    resumed = scene.snapshot().frame  # 离场尾帧已恢复 tick, 以现状为基准
+    scene.step(_IDLE)
+    assert scene.snapshot().frame == resumed + 1  # 恢复后世界接着走
     # 结算出炉 → done, 留给装配处的出口
     world.result = {"score": 1}
     scene.step(_IDLE)
     assert scene.done
     assert scene.next_scene() is None
+
+
+@needs_data
+def test_pause_menu_overlay_and_quit() -> None:
+    """暂停菜单: 覆层贴图叠冻结帧; Return→确认→Yes → done + on_quit 出口(不进结算)。"""
+    from touhou.games.th07.compose import compose
+    from touhou.games.th07.world import compose_world
+
+    def press(b: Button) -> InputFrame:
+        return InputFrame(held=frozenset({b}), pressed=frozenset({b}))
+
+    world = compose_world(compose(), seed=42)
+    quit_scene = _FakeScene(0)
+    scene = GameScene(world, on_exit=lambda: None, on_quit=lambda: quit_scene)
+    scene.step(press(Button.PAUSE))  # 开菜单
+    assert scene.paused
+    assert scene.drain_sounds() == [37]  # SOUND_PAUSED (GameManager.cpp:144)
+    for _ in range(40):  # 入场门 + VM 滑入
+        scene.step(_IDLE)
+    overlay = [
+        s
+        for s in scene.snapshot().sprites
+        if s.image.startswith("ascii.anm:") and s.z >= 200.0
+    ]
+    assert overlay  # 菜单覆层(ascii.anm 脚本 254+ 贴图)
+    assert not scene.world.result  # 冻结中无结算
+    scene.step(press(Button.DOWN))  # Resume → Return to Title (toggle)
+    assert scene.drain_sounds() == [0]  # SOUND_SHOOTING
+    scene.step(press(Button.SHOT))  # → 确认(默认 No)
+    assert scene.drain_sounds() == [10]  # SOUND_SELECT
+    for _ in range(6):  # 确认态输入门 4 帧
+        scene.step(_IDLE)
+    scene.step(press(Button.UP))  # No → Yes
+    for _ in range(6):
+        scene.step(_IDLE)
+    scene.step(press(Button.SHOT))  # Yes → 离场 20 帧
+    for _ in range(25):
+        scene.step(_IDLE)
+    assert scene.done
+    assert scene.next_scene() is quit_scene  # 弃局回标题, 不走 after_game
+    assert world.result is None  # 暂停辞职不进结算 (AsciiManager.cpp:755-759)
 
 
 @needs_data

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ....engine import Event, InputFrame, SceneSnapshot
+from ....engine import Event, InputFrame, SceneSnapshot, SpriteDraw
 from ....engine.input import Button
 from .. import result as result_flow
 from ..replay import ReplayRecorder
@@ -12,20 +12,22 @@ from ..world import Th07World
 from .bg3d import StageBg
 from .fx import GameFx
 from .music import BgmPlayer, StageBgm
+from .pause import SE_PAUSED, PauseMenu
 from .retry import RetryMenu
 from .scene import Scene
 
 
 class GameScene(Scene):
-    """一局对局: Esc 暂停; GameOver 可续关时冻结开续关菜单。
+    """一局对局: Esc 暂停菜单; GameOver 可续关时冻结开续关菜单。
 
-    续关 = RetryMenu 子态(世界冻结不重建); 结局/结算出炉即结束,
-    后续画面(结局/结算/标题)由装配处链。recorder 注入即录制
-    (ReplayManager::OnUpdate 每帧一记, ReplayManager.cpp:33-77): 每个喂给
-    tick 的 InputFrame 录一码, 过面自动打锚点, 存盘由结算画面选槽完成
-    (ResultScene, ResultScreen.cpp HandleReplaySaveKeyboard)。fx 注入即
-    特效层(敌死亡爆散/符卡宣言/关卡标题/弹字): 每帧 tick 后 step, 产出合进
-    快照。
+    暂停 = PauseMenu 子态(世界冻结不 tick; Resume 继续, Return to Title 经
+    on_quit 直回标题不进结算, AsciiManager.cpp:755-759); 续关 = RetryMenu
+    子态(世界冻结不重建); 结局/结算出炉即结束, 后续画面(结局/结算/标题)由
+    装配处链。recorder 注入即录制(ReplayManager::OnUpdate 每帧一记,
+    ReplayManager.cpp:33-77): 每个喂给 tick 的 InputFrame 录一码, 过面自动打
+    锚点, 存盘由结算画面选槽完成(ResultScene, ResultScreen.cpp
+    HandleReplaySaveKeyboard)。fx 注入即特效层(敌死亡爆散/符卡宣言/关卡标题/
+    弹字): 每帧 tick 后 step, 产出合进快照。
     """
 
     playfield_chrome = True
@@ -35,6 +37,7 @@ class GameScene(Scene):
         world: Th07World,
         *,
         on_exit: Callable[[], Scene | None],
+        on_quit: Callable[[], Scene | None] | None = None,
         recorder: ReplayRecorder | None = None,
         fx: GameFx | None = None,
         music: BgmPlayer | None = None,
@@ -44,6 +47,7 @@ class GameScene(Scene):
         super().__init__()
         self.world = world
         self._on_exit = on_exit
+        self._on_quit = on_quit
         self._recorder = recorder
         self._fx = fx
         self._music = music
@@ -64,6 +68,8 @@ class GameScene(Scene):
             recorder.record_tick(world, InputFrame())  # 首帧也录(回放逐帧对齐)
         self._frame_sounds: list[int] = []
         self.paused = False
+        self._pause: PauseMenu | None = None  # 暂停菜单子态(冻结中)
+        self._quit = False  # 暂停菜单选 Return to Title(弃局回标题不进结算)
         self._retry: RetryMenu | None = None  # 续关菜单子态(冻结中)
 
     def _merge_fx(self) -> None:
@@ -101,16 +107,17 @@ class GameScene(Scene):
         if self._retry is not None:
             self._step_retry(inp)
             return
+        if self._pause is not None:
+            self._step_pause(inp)
+            return
         if Button.PAUSE in inp.pressed:
-            self.paused = not self.paused
-            if self._music is not None:
-                # 暂停菜单开关联动 BGM 暂停(GameManager.cpp:138-144, 仅 WAV 音源)
-                if self.paused:
-                    self._music.pause()
-                else:
-                    self._music.unpause()
-        if self.paused:
-            self._frame_sounds = []
+            # Esc 开暂停菜单(GameManager.cpp:129-145: isInPauseMenu=1 +
+            # AUDIO_PAUSE + SOUND_PAUSED; BGM pause 在 PauseMenu 内)
+            self.paused = True
+            self._pause = PauseMenu(
+                self.world, anm_version=self._anm_version, music=self._music
+            )
+            self._frame_sounds = [SE_PAUSED]
             return
         prev = self._snapshot
         self._snapshot = self.world.tick(inp)
@@ -148,6 +155,21 @@ class GameScene(Scene):
             self._retry = None
             self.done = True
 
+    def _step_pause(self, inp: InputFrame) -> None:
+        """暂停菜单一帧: 世界冻结(不 tick), 覆层叠在冻结快照上。"""
+        pause = self._pause
+        assert pause is not None
+        pause.step(inp)
+        self._frame_sounds = pause.drain_sounds()
+        if pause.choice == "resume":
+            self._pause = None
+            self.paused = False
+        elif pause.choice == "quit":
+            # Return to Title: 弃局直回标题, 不进结算 (:755-759)
+            self._pause = None
+            self._quit = True
+            self.done = True
+
     def on_exit(self) -> None:
         """离开对局停 BGM(GameManager::DeletedCallback, GameManager.cpp:813)。"""
         if self._music is not None:
@@ -156,12 +178,17 @@ class GameScene(Scene):
             self._bg.close()
 
     def snapshot(self) -> SceneSnapshot:
-        if self._retry is None:
+        overlay: list[SpriteDraw] = []
+        if self._retry is not None:
+            overlay = self._retry.sprites()
+        elif self._pause is not None:
+            overlay = self._pause.sprites()
+        if not overlay:
             return self._snapshot
-        base = self._snapshot  # 冻结帧 + 续关菜单覆层
+        base = self._snapshot  # 冻结帧 + 菜单覆层
         return SceneSnapshot(
             base.frame,
-            base.sprites + tuple(self._retry.sprites()),
+            base.sprites + tuple(overlay),
             base.texts,
             base.effects,
         )
@@ -176,4 +203,6 @@ class GameScene(Scene):
         return out
 
     def next_scene(self) -> Scene | None:
+        if self._quit and self._on_quit is not None:
+            return self._on_quit()  # 弃局回标题(SUPERVISOR_STATE_MAINMENU)
         return self._on_exit()

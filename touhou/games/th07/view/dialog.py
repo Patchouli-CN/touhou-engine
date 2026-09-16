@@ -21,7 +21,7 @@ _SCR_SHOW = (0, 2)  # SHOW_PORTRAIT 脚本: 左/右 (Gui.cpp:850-856 + AnmIdx.hp
 # 6 面这两个 msg 整段不画 (Gui.cpp:1124-1129)
 _ST6_HIDDEN_MSGS = (1, 11)
 
-Z_PORTRAIT = 104.0  # Gui 层(z>=100 不裁剪不振), 对话窗底图之下
+Z_PORTRAIT = 90.0  # 游戏区内 Gui 层(裁剪进游戏区不振屏), 对话窗底图之下
 Z_BOX = 105.0  # 对话窗底图: 立绘之上 (DrawDialogue 先画立绘, Gui.cpp:1150-1168)
 
 

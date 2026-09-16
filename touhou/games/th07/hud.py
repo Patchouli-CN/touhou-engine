@@ -10,8 +10,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from ...engine import SpriteDraw
-from ...engine.anm import AnmBank
+from ...engine import SpriteDraw, TextDraw
+from ...engine.anm import AnmBank, AnmMachine
+from ...engine.rng import Rng
 from .player import BorderState
 
 if TYPE_CHECKING:
@@ -278,3 +279,147 @@ def emit_hud(
     _emit_chrome(out, front)
     _emit_stats(out, world, front)
     _emit_cherry(out, world, bank_of(_ASCII))
+
+
+# ---- boss 血条 (Gui.cpp:1225-1292 状态机 + :1835-1917 绘制) ----
+Z_BOSS = 104.0  # 血条条体/星标(对话立绘 90 带之上, 对话窗 105 之下)
+Z_BOSS_FRAME = 104.5  # front.anm 框(画在条体之上, Gui.cpp:1871)
+
+_BAR_X, _BAR_Y = 64.0, 19.0  # 主条左上(窗口坐标, Gui.cpp:1838-1842)
+_BAR_W = 320.0  # 主条满宽
+_MARKER_X = 33.0  # 残机星标条左缘 (:1873)
+_SCR_FRAME = 11  # front.anm 血条框脚本 (vms0[11], Gui.cpp:658)
+# 符卡秒数分档色 (g_SpellcardTimeColors, Gui.cpp:25-30)
+_TIME_COLORS = (
+    (0xA0, 0xD0, 0xFF),
+    (0xA0, 0x80, 0xFF),
+    (0xE0, 0x80, 0xC0),
+    (0xFF, 0x40, 0x40),
+)
+
+
+class BossBar:
+    """boss 血条: front.anm 框 VM + 渐变条/星标(程序化键) + 符卡秒数。
+
+    SET_BOSS 建档即亮(道中 boss 同, ECL_SET_BOSS 置 bossPresent,
+    EclManager.cpp:1509-1517); 对话中整段不画(msg.currentMsgIdx>=0,
+    Gui.cpp:1835)。条长按 life/max_life 缓动, alpha 4/帧淡入淡。
+    """
+
+    def __init__(self, rng: Rng) -> None:
+        self._rng = rng
+        self._vm: AnmMachine | None = None  # 血条框(front.anm 脚本 11)
+        self._was_present = False
+        self._alpha = 0
+        self._eased = 0.0
+
+    def step(
+        self,
+        world: Th07World,
+        sprites: list[SpriteDraw],
+        texts: list[TextDraw],
+        bank_of: Callable[[str], AnmBank | None],
+    ) -> None:
+        """每帧: 状态机推进 + 有血条时出绘制项(对话中只跑 VM 不画)。"""
+        boss = world.boss
+        present = boss is not None and boss.max_life > 0
+        msg = world.msg_vm
+        in_dialog = msg is not None and msg.active
+        if not in_dialog:
+            if present != self._was_present:
+                # 出现/退场边沿: 框 VM interrupt 1 滑入 / 2 滑出 (Gui.cpp:1230/:1254)
+                if self._vm is not None:
+                    self._vm.pending_interrupt = 1 if present else 2
+                self._was_present = present
+            self._alpha = max(0, min(255, self._alpha + (4 if present else -4)))
+            if present:
+                assert boss is not None
+                frac = max(0.0, min(1.0, boss.life / boss.max_life))
+                # 缓动: 涨 0.01/帧, 落 0.02/帧 (Gui.cpp:1273-1291)
+                if frac > self._eased:
+                    self._eased = min(frac, self._eased + 0.01)
+                else:
+                    self._eased = max(frac, self._eased - 0.02)
+            elif self._alpha == 0:
+                self._eased = 0.0  # 退场完毕归零 (:1267-1269)
+        vm = self._vm
+        if vm is None or not vm.alive:
+            bank = bank_of(_FRONT)
+            vm = None
+            if bank is not None:
+                vm = AnmMachine(self._rng)
+                vm.start(bank.scripts.get(_SCR_FRAME))
+                if not vm.alive:
+                    vm = None
+            self._vm = vm
+            if present and vm is not None:
+                vm.pending_interrupt = 1  # 晚建档(数据迟到)补入场
+        if vm is not None:
+            vm.execute()  # ExecuteScripts (Gui.cpp:1293)
+        if self._alpha <= 0 or in_dialog:
+            return
+        # 主条: 程序化渐变 quad (64,19)-(64+320*eased,23) (Gui.cpp:1838-1846)
+        sprites.append(
+            SpriteDraw(
+                "misc:bossbar",
+                _BAR_X,
+                _BAR_Y,
+                z=Z_BOSS,
+                scale_x=self._eased * _BAR_W,
+                scale_y=4.0,
+                alpha=self._alpha,
+            )
+        )
+        if vm is not None and vm.visible and vm.active_sprite_idx >= 0:
+            bank = bank_of(_FRONT)
+            w = h = 0.0
+            if bank is not None:
+                slot = bank.sprites.get(vm.active_sprite_idx)
+                if slot is not None:
+                    w, h = float(slot.sprite.w), float(slot.sprite.h)
+            x, y = vm.pos[0] + vm.offset[0], vm.pos[1] + vm.offset[1]
+            if vm.anchor & 1:  # anchor3: pos 是左上 → 中心锚
+                x += w * abs(vm.scale[0]) / 2.0
+            if vm.anchor & 2:
+                y += h * abs(vm.scale[1]) / 2.0
+            sprites.append(
+                SpriteDraw(
+                    f"{_FRONT}:{vm.active_sprite_idx}",
+                    x,
+                    y,
+                    z=Z_BOSS_FRAME,
+                    alpha=vm.color[3],
+                    scale_x=vm.scale[0],
+                    scale_y=vm.scale[1],
+                    color=(vm.color[0], vm.color[1], vm.color[2]),
+                    blend_mode=vm.blend_mode,
+                )
+            )
+        # 残机星标 (Gui.cpp:1873-1887; scale_x 载个数, 后端程序化)
+        host = world.host
+        markers = host.boss_life_markers if host is not None else 0
+        if markers > 0:
+            sprites.append(
+                SpriteDraw(
+                    "misc:bossmarkers",
+                    _MARKER_X,
+                    _BAR_Y,
+                    z=Z_BOSS,
+                    scale_x=float(markers),
+                    scale_y=4.0,
+                    alpha=self._alpha,
+                )
+            )
+        # 符卡剩余秒 (Gui.cpp:1889-1916; 只在符卡进行中, 同旧仓 hud 行为)
+        if boss is not None and boss.is_active == 1 and boss.spellcard_idx >= 0:
+            sec = max(0, min(99, boss.seconds_remaining))
+            ci = 0 if sec >= 20 else 1 if sec >= 10 else 2 if sec >= 5 else 3
+            texts.append(
+                TextDraw(
+                    f"{sec:02d}",
+                    384.0,
+                    16.0,
+                    size=15,
+                    rgba=(*_TIME_COLORS[ci], self._alpha),
+                )
+            )

@@ -168,7 +168,7 @@ def test_speak_dim_bright_and_exit() -> None:
     ex.read(0)
     dp = DialogPortraits(Rng(0))
     frames = _run(ex, dp, _world(ex), 400)
-    # 左入场淡入完成(30f) → 亮; z 为 Gui 层
+    # 左入场淡入完成(30f) → 亮; z 为游戏区内 Gui 带(裁剪不振屏)
     left_lit = next(
         (
             i
@@ -178,7 +178,7 @@ def test_speak_dim_bright_and_exit() -> None:
         None,
     )
     assert left_lit is not None
-    assert _side(frames[left_lit], "face_rm00.anm:").z >= 100.0
+    assert _side(frames[left_lit], "face_rm00.anm:").z == Z_PORTRAIT
     # 右侧入场淡入完成帧: boss 说话中, 左已被 SWITCH 4 压暗
     right_lit = next(
         (
@@ -309,8 +309,11 @@ def test_stage6_hidden_msgs() -> None:
 
 
 def test_z_is_gui_layer() -> None:
-    """对话立绘 z = Gui 层(>=100, 不裁剪不振屏), 在弹字(120)之下。"""
-    assert 100.0 <= Z_PORTRAIT < 120.0
+    """对话立绘 z = 游戏区内 Gui 带([90,100): 裁剪进游戏区但不振屏), 在世界件之上。"""
+    from touhou.games.th07.view.backend import Z_CLIP_GUI, Z_GUI
+
+    assert Z_CLIP_GUI <= Z_PORTRAIT < Z_GUI
+    assert Z_PORTRAIT > 51.0  # 世界件最高 z=51(判定点), 立绘盖其上
 
 
 # ---- 对话窗本体(DialogBox): 底图/文字/介绍名 ----

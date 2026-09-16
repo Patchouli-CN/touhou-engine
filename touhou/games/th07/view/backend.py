@@ -2,7 +2,8 @@
 
 窗口 640x480 逻辑像素 × scale; 每帧 = 事件采集 → 快照合成 → flip → 60fps 帧控。
 SE 走 schemas/sound.py 的槽位表(wav 从数据包懒加载, 无声卡/无数据静音降级)。
-z 序约定: z<100 = 游戏区空间(裁剪进 384x448 + 震屏偏移), z>=100 = Gui 层
+z 序约定: z<90 = 游戏区空间(裁剪进 384x448 + 震屏偏移), 90<=z<100 = 游戏区内
+Gui 件(裁剪不振屏, 对话立绘; C++ arcade 视口语义), z>=100 = Gui 层
 (边框/HUD 面板/符卡宣言/关卡标题/弹字, 画全窗口不裁剪不振; C++ Gui 绘制前
 清零 offset, Gui.cpp:159-160)。震屏 = register_shakes 登记 + 每帧衰减偏移
 (ScreenEffect)。
@@ -27,6 +28,9 @@ from .shake import ScreenShake
 _BG_COLOR = (8, 12, 30)  # 窗外区底色
 _FIELD_COLOR = (10, 14, 36)  # 游戏区底色(无 3D 背景数据时的占位)
 Z_GUI = 100.0  # z>=此值 = Gui 层: 不裁剪不振屏(边框/HUD/横幅/标题/弹字)
+# [此值, Z_GUI) = 游戏区内 Gui 件: 裁剪进 384x448 但不振屏(对话立绘;
+# C++ Gui 绘制时 viewport 是 arcade 区, GameManager.cpp:147-152)
+Z_CLIP_GUI = 90.0
 
 #: 默认键位(th07 原作: Z=射击 X=炸弹 Shift=低速 Ctrl=快进 Esc=暂停)
 _KEYMAP: dict[int, Button] = {
@@ -79,6 +83,8 @@ class PygameBackend(RenderBackend):
         self._sounds: dict[int, pygame.mixer.Sound | None] = {}
         self._veils: dict[int, pygame.Surface] = {}  # 符卡黑罩 alpha 档缓存
         self._powerbar: pygame.Surface | None = None  # Power 渐变条母版(128 宽)
+        self._bossbar: pygame.Surface | None = None  # boss 血条母版(320x4)
+        self._bossmarkers: dict[int, pygame.Surface] = {}  # 血条星标(按个数缓存)
         self._dlg_bg_full: pygame.Surface | None = None  # 对话框渐变底母版
         self._dlg_bgs: dict[tuple[int, int], pygame.Surface] = {}  # 按 (w,h) 缓存
         self._mixer_ok = False
@@ -175,7 +181,8 @@ class PygameBackend(RenderBackend):
             if chrome and not gui_layer and spr.z >= Z_GUI:
                 frame.set_clip(None)
                 gui_layer = True
-            if gui_layer:
+            if gui_layer or (chrome and spr.z >= Z_CLIP_GUI):
+                # Gui 层全窗口直画; 游戏区内 Gui 件(Z_CLIP_GUI 带)留裁剪不振屏
                 self._blit_sprite(frame, spr, 0, 0)
             else:
                 self._blit_sprite(frame, spr, sdx, sdy)
@@ -247,6 +254,51 @@ class PygameBackend(RenderBackend):
                     (int(spr.x) + dx, int(spr.y) + dy),
                     (0, 0, min(w, 128), 16),
                 )
+            return
+        if spr.image == "misc:bossbar":
+            # boss 血条本体(程序化, Gui.cpp:1838-1846): 顶白 → 底 0x202060;
+            # x/y 为左上, scale_x=当前长度, 从 320 宽母版切
+            w = int(spr.scale_x)
+            if w > 0:
+                if self._bossbar is None:
+                    bar = pygame.Surface((320, 4), pygame.SRCALPHA)
+                    for by in range(4):
+                        r = 255 + (0x20 - 255) * by // 3
+                        g = 255 + (0x20 - 255) * by // 3
+                        b = 255 + (0x60 - 255) * by // 3
+                        pygame.draw.line(bar, (r, g, b), (0, by), (319, by))
+                    self._bossbar = bar
+                img = self._bossbar.subsurface((0, 0, min(w, 320), 4))
+                if spr.alpha < 255:
+                    img = img.copy()
+                    img.set_alpha(spr.alpha)
+                frame.blit(img, (int(spr.x) + dx, int(spr.y) + dy))
+            return
+        if spr.image == "misc:bossmarkers":
+            # 血条残机星标(程序化, Gui.cpp:1873-1887): scale_x 载个数;
+            # 每标顶 (0xffffff - j*255/9) → 底 0x202020
+            n = int(spr.scale_x)
+            if n > 0:
+                strip = self._bossmarkers.get(n)
+                if strip is None:
+                    strip = pygame.Surface((30, 4), pygame.SRCALPHA)
+                    gap = (n <= 5) + 1
+                    for j in range(n):
+                        x0 = round(j * 26.0 / n + 35.0) - 33
+                        x1 = round((j + 1) * 26.0 / n + 35.0) - gap - 33
+                        top = 0xFFFFFF - j * 255 // 9
+                        for by in range(4):
+                            t = by / 3
+                            r = int(((top >> 16) & 0xFF) * (1 - t) + 0x20 * t)
+                            g = int(((top >> 8) & 0xFF) * (1 - t) + 0x20 * t)
+                            b = int((top & 0xFF) * (1 - t) + 0x20 * t)
+                            pygame.draw.line(strip, (r, g, b), (x0, by), (x1 - 1, by))
+                    self._bossmarkers[n] = strip
+                img = strip
+                if spr.alpha < 255:
+                    img = strip.copy()
+                    img.set_alpha(spr.alpha)
+                frame.blit(img, (int(spr.x) + dx, int(spr.y) + dy))
             return
         img = self.bank.get(spr.image)
         sx = spr.scale * spr.scale_x
