@@ -98,6 +98,9 @@ class BulletState(msgspec.Struct):
         default_factory=lambda: [CmdState() for _ in range(NUM_SLOTS)]
     )
     spawn_delay: int = 0
+    # 命令触发音(不透明 id, <0 = 静音; C bullet->soundIdx = shooter soundOverride,
+    # BulletManager.cpp:254)
+    sound_idx: int = -1
 
     def __post_init__(self) -> None:
         self.vel = Vec2.from_angle(self.angle, self.speed)
@@ -121,21 +124,26 @@ class BulletState(msgspec.Struct):
         if slot < len(self.commands):
             self.commands[slot] = BulletCommand(CmdFlag(0))
 
-    def run_commands(self, dt: float = 1.0) -> None:
-        """从队列激活下一条命令(每次调用最多一条; flag==0 要等 exFlags 清空)。"""
+    def run_commands(self, dt: float = 1.0) -> int:
+        """从队列激活下一条命令(每次调用最多一条; flag==0 要等 exFlags 清空)。
+
+        返回命令触发音次数(0/1): TARGET_VEL/TARGET_ANGLE 在非 0 号位激活时
+        计一次 (BulletManager.cpp:394-407, 出生时 0 号位激活不响)。
+        """
         # Bullet::RunCommands (0x00424290); dt = effectiveFramerateMultiplier:
         # 激活 TARGET_VEL 时烘进状态矢量 (BulletManager.cpp:347-349), 之后每帧
         # 更新器再乘当前 mult (:703-704) —— 减速中激活双重缩放, 照抄
         while self.cur_cmd_idx < len(self.commands):
             cmd = self.commands[self.cur_cmd_idx]
             if cmd.type == 0:
-                return
+                return 0
             if cmd.flag == 0 and self.ex_flags != 0:
-                return
+                return 0
             if not (self.more_flags & cmd.type):
                 self.cur_cmd_idx += 1
                 continue
             t = cmd.type
+            sound = 0
             if t == CmdFlag.BURST:
                 self.ex_flags |= CmdFlag.BURST
                 st = self.states[_SLOT_BURST]
@@ -148,6 +156,7 @@ class BulletState(msgspec.Struct):
                 st.timer = 0
                 st.duration = cmd.duration
                 st.vel = Vec2.from_angle(st.angle, st.speed * dt)
+                sound = 1 if self.cur_cmd_idx != 0 else 0  # BulletManager.cpp:394
             elif t == CmdFlag.TARGET_ANGLE:
                 self.ex_flags |= CmdFlag.TARGET_ANGLE
                 st = self.states[_SLOT_TARGET_ANGLE]
@@ -155,6 +164,7 @@ class BulletState(msgspec.Struct):
                 st.angle = cmd.angle
                 st.timer = 0
                 st.duration = cmd.duration
+                sound = 1 if self.cur_cmd_idx != 0 else 0  # BulletManager.cpp:405
             elif t & (
                 CmdFlag.DIR_CHANGE | CmdFlag.DIR_CHANGE_AIM | CmdFlag.DIR_CHANGE_ABS
             ):
@@ -178,14 +188,19 @@ class BulletState(msgspec.Struct):
                 self.cur_cmd_idx += 1
                 continue
             self.cur_cmd_idx += 1
-            return
+            return sound
+        return 0
 
     # ---- 每帧: 按 OnUpdate 的顺序跑激活的更新器 ----
-    def step_commands(self, player_pos: Vec2, dt: float = 1.0) -> None:
-        """跑全部激活的 exFlags 更新器(顺序同 OnUpdate)。"""
+    def step_commands(self, player_pos: Vec2, dt: float = 1.0) -> int:
+        """跑全部激活的 exFlags 更新器(顺序同 OnUpdate); 返回命令触发音次数。
+
+        转向三件套到帧触发与反弹出界各计一次 (BulletManager.cpp:786-852/:886)。
+        """
         # 热路径: ex_flags 经 |= 命令位可能是 IntFlag 实例(3.12+ int|IntFlag 走
         # enum 反射), enum 的 __and__ 是纯 Python 巨慢 —— 全程用 int 位型比较
         f = int(self.ex_flags)
+        sound = 0
         if f & _F_BURST:
             self._update_burst(dt)
         if f & _F_TARGET_VEL:
@@ -193,13 +208,20 @@ class BulletState(msgspec.Struct):
         if f & _F_TARGET_ANGLE:
             self._update_target_angle(dt)
         if f & _F_DIR_CHANGE:
-            self._update_dir_change(dt, CmdFlag.DIR_CHANGE, "relative", player_pos)
+            sound += self._update_dir_change(
+                dt, CmdFlag.DIR_CHANGE, "relative", player_pos
+            )
         if f & _F_DIR_CHANGE_ABS:
-            self._update_dir_change(dt, CmdFlag.DIR_CHANGE_ABS, "absolute", player_pos)
+            sound += self._update_dir_change(
+                dt, CmdFlag.DIR_CHANGE_ABS, "absolute", player_pos
+            )
         if f & _F_DIR_CHANGE_AIM:
-            self._update_dir_change(dt, CmdFlag.DIR_CHANGE_AIM, "aim", player_pos)
+            sound += self._update_dir_change(
+                dt, CmdFlag.DIR_CHANGE_AIM, "aim", player_pos
+            )
         if f & _F_BOUNCE_ANY:
-            self._update_bounce(dt)
+            sound += self._update_bounce(dt)
+        return sound
 
     # ---- 更新器(逐一对应 BulletManager.cpp 的 UpdateBullet* 函数) ----
     def _update_burst(self, dt: float) -> None:
@@ -236,14 +258,17 @@ class BulletState(msgspec.Struct):
 
     def _update_dir_change(
         self, dt: float, bit: CmdFlag, mode: str, player_pos: Vec2
-    ) -> None:
+    ) -> int:
         """UpdateBulletDirChange{,Absolute,AimAtPlayer}AndResume 三合一。
 
         前 duration 帧线性强减速到 0, 到帧后转向(相对+=/绝对=/瞄准玩家+)并
         恢复目标速度; 循环 loop 次后清 flag。三种模式共用一个命令槽。
+        返回命令触发音次数(0/1, 到帧转向时计一次)。
         """
         st = self.states[_SLOT_DIR_CHANGE]
+        sound = 0
         if st.timer >= st.duration:
+            sound = 1  # BulletManager.cpp:786-788/:818-820/:850-852
             st.min_times += 1
             if st.min_times >= st.max_times:
                 self.ex_flags &= ~bit
@@ -262,11 +287,13 @@ class BulletState(msgspec.Struct):
             cur = self.speed - st.timer * self.speed / st.duration
         self.vel = Vec2.from_angle(self.angle, cur * dt)
         st.timer += 1
+        return sound
 
-    def _update_bounce(self, dt: float) -> None:
+    def _update_bounce(self, dt: float) -> int:
         """UpdateBulletBounce: 出界反弹, 底边只在 BOUNCE(0x400) 下弹。
 
         反弹次数存 st.duration(复用), 达到 st.max_times 后同清两个反弹位。
+        返回命令触发音次数(0/1, 出界反弹帧计一次, BulletManager.cpp:886-888)。
         """
         st = self.states[_SLOT_BOUNCE]
         hw, hh = self.size.x / 2.0, self.size.y / 2.0
@@ -277,7 +304,7 @@ class BulletState(msgspec.Struct):
             and self.pos.y - hh <= SCREEN_H
         )
         if in_bounds:
-            return
+            return 0
         if self.pos.x < 0.0 or self.pos.x >= SCREEN_W:
             self.angle = normalize_angle_diff(-self.angle - math.pi)
         if self.pos.y < 0.0 or (
@@ -289,13 +316,18 @@ class BulletState(msgspec.Struct):
         st.duration += 1
         if st.duration >= st.max_times:
             self.ex_flags &= ~(CmdFlag.BOUNCE | CmdFlag.BOUNCE_NO_FLOOR)
+        return 1
 
 
-def step_bullet(bs: BulletState, player_pos: Vec2, dt: float = 1.0) -> None:
-    """让一颗带命令的弹走一帧(顺序同 OnUpdate 的 BULLET_NORMAL 分支)。"""
+def step_bullet(bs: BulletState, player_pos: Vec2, dt: float = 1.0) -> int:
+    """让一颗带命令的弹走一帧(顺序同 OnUpdate 的 BULLET_NORMAL 分支)。
+
+    返回命令触发音次数(命令激活 + 转向/反弹触发合计)。
+    """
     # RunCommands → exFlags 更新器 → spawnDelay 递减 → pos += velocity
-    bs.run_commands(dt)
-    bs.step_commands(player_pos, dt)
+    sound = bs.run_commands(dt)
+    sound += bs.step_commands(player_pos, dt)
     if bs.spawn_delay != 0:
         bs.spawn_delay -= 1
     bs.pos = bs.pos + bs.vel
+    return sound

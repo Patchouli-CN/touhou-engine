@@ -10,7 +10,7 @@ import msgspec
 
 from ...engine.enemies import Enemy, EnemyField
 from .ecl_host import Th07EclHost
-from .ecl_state import BulletShooter
+from .ecl_state import template_shooter
 
 
 class Th07EnemyField(EnemyField):
@@ -44,4 +44,6 @@ class Th07EnemyField(EnemyField):
         ex.bullet_rank_speed_high = 0.5
         ex.bullet_rank_amount1_low = ex.bullet_rank_amount1_high = 0
         ex.bullet_rank_amount2_low = ex.bullet_rank_amount2_high = 0
-        ex.shooter = BulletShooter()
+        ex.shooter = (
+            template_shooter()
+        )  # bulletProps = enemyTemplate (EnemyManager.cpp:1036)

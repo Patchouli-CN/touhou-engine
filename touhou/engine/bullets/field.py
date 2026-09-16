@@ -110,6 +110,9 @@ class Burst(msgspec.Struct, frozen=True):
     sprite_offset: int = 0  # spriteOffset: 颜色/变体偏移
     commands: tuple[BulletCommand, ...] = ()  # 出生即挂的命令队列
     flags: int = 0  # moreFlags(命令位 + 2/4/8 出生态 + 0x200 音效 + 0x1000 不清屏…)
+    # 命令触发音(不透明 id, <0 = 静音; C bullet->soundIdx = shooter soundOverride,
+    # BulletManager.cpp:254)
+    sound_idx: int = -1
 
     def angle_speed(self, arm: int, ring: int, rng: Rng) -> tuple[float, float]:
         """第 (arm, ring) 颗弹的发射角/速度(SpawnSingleBullet 的 switch)。"""
@@ -247,6 +250,9 @@ class BulletField(msgspec.Struct):
     # BulletManager::screenClearTime (:480/:553 置 10, :1205-1207 每帧递减):
     # 窗口期内不带 0x1000 moreFlag 的新弹出生即 DESPAWN (:289-292, 不入场)
     screen_clear_time: int = 0
+    # 本帧命令触发音(不透明 id 列表; 由世界按帧首清/帧末 drain 节拍消费,
+    # 同 world.frame_sounds; C++ 在命令触发点直接 PlaySoundByIdx)
+    frame_sounds: list[int] = msgspec.field(default_factory=list)
     _bullets: list[Bullet] = msgspec.field(default_factory=list)
 
     # ---- 生成 ----
@@ -279,6 +285,7 @@ class BulletField(msgspec.Struct):
                     sprite=burst.sprite,
                     sprite_offset=burst.sprite_offset,
                     hitbox=self.bullet_radius,
+                    sound_idx=burst.sound_idx,
                 )
                 if self.time_scale != 1.0:
                     # SpawnSingleBullet: velocity = speed * effectiveFramerateMultiplier
@@ -294,7 +301,9 @@ class BulletField(msgspec.Struct):
                     b.spawn_state = st
                     b.spawn_frames = frames
                     b.pos = b.pos - b.vel * 4.0
-                b.run_commands(self.time_scale)  # SpawnSingleBullet 末尾立即跑一次
+                # SpawnSingleBullet 末尾立即跑一次; 出生时 0 号位激活不响,
+                # 非 0 号位激活照计 (BulletManager.cpp:394 的 curCmdIdx 判定)
+                self._collect_sound(b, b.run_commands(self.time_scale))
                 self._bullets.append(b)
                 ctx.events.emit(
                     BulletSpawned(b.pos.x, b.pos.y, b.sprite, b.angle, b.speed, st)
@@ -357,6 +366,11 @@ class BulletField(msgspec.Struct):
         )
 
     # ---- 每帧(MOVEMENT 槽) ----
+    def _collect_sound(self, b: Bullet, triggers: int) -> None:
+        """命令触发音入账(C++ 各触发点的 soundIdx>=0 门)。"""
+        if triggers > 0 and b.sound_idx >= 0:
+            self.frame_sounds.extend([b.sound_idx] * triggers)
+
     def step(self, ctx: FrameContext) -> None:
         """推进全场一帧(OnUpdate: 出生态分支 → 命令 → 更新器 → 位移 → 出界)。"""
         for b in self._bullets:
@@ -368,8 +382,8 @@ class BulletField(msgspec.Struct):
                 if b.spawn_frames > 0:
                     continue
                 b.spawn_state = 0  # switch_break: 转 NORMAL, 当帧落入正常分支
-            b.run_commands(self.time_scale)
-            b.step_commands(self.player_pos, self.time_scale)
+            self._collect_sound(b, b.run_commands(self.time_scale))
+            self._collect_sound(b, b.step_commands(self.player_pos, self.time_scale))
             if b.spawn_delay != 0:
                 b.spawn_delay -= 1
             b.step()

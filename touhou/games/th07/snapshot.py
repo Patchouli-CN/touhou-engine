@@ -41,8 +41,10 @@ _ITEM_SCRIPT_BASE = 196  # 链式 entry1 基址 168 + 局部 script 28(ItemManag
 _ROTATE_BULLET_TYPES = (2, 4, 5, 6, 8)  # 长条弹按速度方向转(米/滴/针/箭/刀)
 _SPAWN_ALPHA = 96  # 出生态弹本体透明度
 _PLAYER_C_BASE = 0x400  # 自机 anm 的 C 文件基址(自机弹 anmFileIdx 同空间)
-_PLAYER_IDLE_FRAMES = 8  # 静止 sprite 0..7 慢摇(8 帧一切)
-_PLAYER_TILT_SPRITE = 12  # 侧移倾斜帧(左倾; 右移水平翻转)
+# 自机脚本: 0=静止慢摇 1/2=左移/左回正 3/4=右移/右回正 (AnmIdx.hpp:232-236)
+_PLAYER_SCRIPT_IDLE = 0
+_PLAYER_SCRIPT_MOVING_LEFT, _PLAYER_SCRIPT_STOPPING_LEFT = 1, 2
+_PLAYER_SCRIPT_MOVING_RIGHT, _PLAYER_SCRIPT_STOPPING_RIGHT = 3, 4
 _OPTION_SCRIPTS = (128, 129)  # 子机脚本(Player.cpp:2451-2452)
 
 
@@ -82,6 +84,9 @@ class Th07SnapshotSystem(System["Th07World"]):
             int, tuple[AnmMachine, int]
         ] = {}  # 弹池下标 → (VM, 脚本键)
         self._option_vms: list[AnmMachine] = []
+        self._player_vm: AnmMachine | None = None  # 自机本体(脚本 0-4 状态机)
+        self._player_script = -1  # 当前脚本(-1=未建档, 下帧进 idle)
+        self._prev_move_sign = 0  # 上帧横移方向(侧移脚本边沿判定用)
         self._boss_bar = BossBar(self._rng)  # boss 血条(框 VM + 缓动状态)
 
     # ---- anm 数据(惰性; 无 archive → 全 None → 语义键兜底) ----
@@ -364,35 +369,66 @@ class Th07SnapshotSystem(System["Th07World"]):
                 )
             )
 
-    # ---- 自机(player0N.anm 代表帧直取; old sprite_view.py:885-951) ----
+    # ---- 自机(player0N.anm 脚本 0-4 状态机; Player.cpp:1367-1385) ----
     def _emit_player(self, world: Th07World, ctx: FrameContext) -> None:
         p = world.player
         if p.state == PlayerState.DEAD:
+            # 重生从 idle 重起 (Player.cpp:1848-1860)
+            self._player_script = -1
+            self._prev_move_sign = 0
             return
         anm_name = f"player0{world.character // 2}.anm"
         alpha = 255
         if p.invulnerability_timer and p.invulnerability_timer % 8 < 2:
             alpha = 110  # 无敌帧闪烁
-        vx = p.velocity.x
-        if vx < -0.05:
-            gid, flip = _PLAYER_TILT_SPRITE, 1.0
-        elif vx > 0.05:
-            gid, flip = _PLAYER_TILT_SPRITE, -1.0
-        else:
-            gid, flip = world.frame // 8 % _PLAYER_IDLE_FRAMES, 1.0
-        ctx.draw.sprites.append(
-            SpriteDraw(
-                f"{anm_name}:{gid}",
-                _gx(p.pos.x),
-                _gy(p.pos.y),
-                z=50.0,
-                alpha=alpha,
-                scale_x=flip,
+        bank = self._bank(world, anm_name)
+        if bank is None:
+            ctx.draw.sprites.append(
+                SpriteDraw(
+                    f"{anm_name}:0", _gx(p.pos.x), _gy(p.pos.y), z=50.0, alpha=alpha
+                )
             )
-        )
+        else:
+            vm = self._player_vm
+            if vm is None:
+                vm = AnmMachine(self._rng)
+                self._player_vm = vm
+            # 横移方向边沿切脚本 (Player.cpp:1367-1385 previousHorizontalSpeed)
+            vx = p.velocity.x
+            sign = -1 if vx < -0.05 else (1 if vx > 0.05 else 0)
+            scr = -1
+            if sign < 0 and self._prev_move_sign >= 0:
+                scr = _PLAYER_SCRIPT_MOVING_LEFT
+            elif sign == 0 and self._prev_move_sign < 0:
+                scr = _PLAYER_SCRIPT_STOPPING_LEFT
+            elif sign > 0 and self._prev_move_sign <= 0:
+                scr = _PLAYER_SCRIPT_MOVING_RIGHT
+            elif sign == 0 and self._prev_move_sign > 0:
+                scr = _PLAYER_SCRIPT_STOPPING_RIGHT
+            self._prev_move_sign = sign
+            if self._player_script < 0:
+                scr = _PLAYER_SCRIPT_IDLE
+            if scr >= 0 and scr != self._player_script:
+                vm.start(bank.scripts.get(scr))
+                self._player_script = scr
+            vm.execute()
+            if vm.visible and vm.active_sprite_idx >= 0:
+                ctx.draw.sprites.append(
+                    SpriteDraw(
+                        f"{anm_name}:{vm.active_sprite_idx}",
+                        _gx(p.pos.x + vm.offset[0]),
+                        _gy(p.pos.y + vm.offset[1]),
+                        z=50.0,
+                        rotation=vm.rotation[2],
+                        alpha=min(alpha, vm.color[3]),
+                        scale_x=vm.scale[0],
+                        scale_y=vm.scale[1],
+                        color=(vm.color[0], vm.color[1], vm.color[2]),
+                        blend_mode=vm.blend_mode,
+                    )
+                )
         # 子机(脚本带 ANGVEL 旋转; 位置 = options.step 产出)
         if world.options.state != OptionState.HIDDEN and len(world.shots.options) == 2:
-            bank = self._bank(world, anm_name)
             while len(self._option_vms) < 2:
                 svm = AnmMachine(self._rng)
                 script = (

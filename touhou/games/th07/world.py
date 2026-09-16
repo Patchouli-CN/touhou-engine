@@ -185,6 +185,7 @@ class Th07World(World):
         self.frame_popups.clear()
         self.frame_bonus_score = 0
         self.stage_script_waits.clear()
+        self.bullets.frame_sounds.clear()  # 弹命令触发音与本帧重齐(帧末 drain)
         if self.game_over:
             # 无残机死亡(C++ 进 retry 菜单): 可续关则画面冻结, 等 view 选择
             # (continue_play/finalize_game_over); 不可续关(Extra·Phantasm/
@@ -200,6 +201,9 @@ class Th07World(World):
             ctx.events.flush()
             return snapshot
         snapshot = tick_frame(self, self.pipeline, ctx)
+        # 弹命令触发音(转向/反弹/非 0 号位命令激活)并入本帧 SE
+        # (BulletManager.cpp:394-407/:786-888 的 PlaySoundByIdx 点)
+        self.frame_sounds.extend(self.bullets.frame_sounds)
         # 结算在 flush 中回产的事件(SpellcardFailed/ScoreChanged 等)再投递,
         # 有界轮次防级联回环
         for _ in range(4):

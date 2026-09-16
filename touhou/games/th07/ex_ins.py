@@ -578,6 +578,7 @@ def _ex22_spawn_bullets_with_dir_change(
             count2=1,
             flags=0x208,
             aim_mode=3,
+            sound_override=25,  # SOUND_DIR_CHANGING (EnemyEclInstr.cpp:998)
         )
         if odd:
             props.commands[0].type = int(CmdFlag.DIR_CHANGE_AIM)
@@ -614,6 +615,7 @@ def _ex23_spawn_bullets_with_dir_change2(
             count2=1,
             flags=0x208,
             aim_mode=3,
+            sound_override=25,  # SOUND_DIR_CHANGING (EnemyEclInstr.cpp:1067)
         )
         if mod3:
             props.commands[0].type = int(CmdFlag.DIR_CHANGE_AIM)

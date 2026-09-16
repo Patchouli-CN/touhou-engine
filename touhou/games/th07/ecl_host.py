@@ -95,7 +95,7 @@ from .ecl_instrs import (
     SpawnLaserPattern,
     TestLaserNotInUse,
 )
-from .ecl_state import BulletShooter, EnemyExtras
+from .ecl_state import BulletShooter, EnemyExtras, template_shooter
 
 #: C 弹幕上限(BulletManager::SpawnBulletPattern 的 bulletCount >= 1024 检查)
 _MAX_BULLETS = 1024
@@ -448,7 +448,11 @@ class Th07EclHost(EclHost):
         enemy = Enemy(machine=machine, enemy_id=self.enemies.next_id)
         self.enemies.next_id += 1
         # 先登记: 首帧 sub 可能即 SET_BOSS/配置指令
-        self.extras[id(machine)] = EnemyExtras()
+        ex = EnemyExtras()
+        ex.shooter = (
+            template_shooter()
+        )  # bulletProps = enemyTemplate (EnemyManager.cpp:401)
+        self.extras[id(machine)] = ex
         self.machine_enemy[id(machine)] = enemy
         if not machine.rerun():
             del self.extras[id(machine)]
@@ -566,6 +570,7 @@ class Th07EclHost(EclHost):
                 sprite_offset=p.sprite_offset,
                 commands=p.cooked_commands(),
                 flags=p.flags,
+                sound_idx=p.sound_override,  # 弹体命令触发音(BulletManager.cpp:254)
             ),
             self.ctx,
         )

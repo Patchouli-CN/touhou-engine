@@ -46,7 +46,7 @@ class BulletShooter(msgspec.Struct):
     angle2: float = 0.0
     flags: int = 0
     sound_idx: int = 0
-    sound_override: int = 0
+    sound_override: int = -1  # C 构造器默认 -1=静音 (BulletManager.hpp:88-91)
     commands: list[BulletCommandData] = msgspec.field(
         default_factory=lambda: [
             BulletCommandData() for _ in range(SHOOTER_COMMAND_SLOTS)
@@ -74,6 +74,19 @@ class BulletShooter(msgspec.Struct):
                 )
             )
         return tuple(out)
+
+
+#: 敌人模板弹幕音 (EnemyManager.hpp:370-371): 发弹音 7=se_tan00, 命令触发音
+#: 25=se_kira00; 生敌/回调重置时 bulletProps 从模板拷 (EnemyManager.cpp:401/:1036)
+TEMPLATE_SOUND_IDX = 7
+TEMPLATE_SOUND_OVERRIDE = 25
+
+
+def template_shooter() -> BulletShooter:
+    """敌人模板射手(生敌/死亡回调重置时 bulletProps 的拷贝源)。"""
+    return BulletShooter(
+        sound_idx=TEMPLATE_SOUND_IDX, sound_override=TEMPLATE_SOUND_OVERRIDE
+    )
 
 
 class EnemyExtras(msgspec.Struct):

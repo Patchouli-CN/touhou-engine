@@ -302,14 +302,15 @@ class BossBar:
     """boss 血条: front.anm 框 VM + 渐变条/星标(程序化键) + 符卡秒数。
 
     SET_BOSS 建档即亮(道中 boss 同, ECL_SET_BOSS 置 bossPresent,
-    EclManager.cpp:1509-1517); 对话中整段不画(msg.currentMsgIdx>=0,
-    Gui.cpp:1835)。条长按 life/max_life 缓动, alpha 4/帧淡入淡。
+    EclManager.cpp:1509-1517); 对话中状态机冻结且整段不画(msg.currentMsgIdx>=0,
+    Gui.cpp:1225/:1835)。
     """
 
     def __init__(self, rng: Rng) -> None:
         self._rng = rng
         self._vm: AnmMachine | None = None  # 血条框(front.anm 脚本 11)
-        self._was_present = False
+        # Gui.cpp 状态机: 0=无 1=滑入中 2=恒显 3=滑出中 (bossHealthBarState)
+        self._state = 0
         self._alpha = 0
         self._eased = 0.0
 
@@ -325,23 +326,6 @@ class BossBar:
         present = boss is not None and boss.max_life > 0
         msg = world.msg_vm
         in_dialog = msg is not None and msg.active
-        if not in_dialog:
-            if present != self._was_present:
-                # 出现/退场边沿: 框 VM interrupt 1 滑入 / 2 滑出 (Gui.cpp:1230/:1254)
-                if self._vm is not None:
-                    self._vm.pending_interrupt = 1 if present else 2
-                self._was_present = present
-            self._alpha = max(0, min(255, self._alpha + (4 if present else -4)))
-            if present:
-                assert boss is not None
-                frac = max(0.0, min(1.0, boss.life / boss.max_life))
-                # 缓动: 涨 0.01/帧, 落 0.02/帧 (Gui.cpp:1273-1291)
-                if frac > self._eased:
-                    self._eased = min(frac, self._eased + 0.01)
-                else:
-                    self._eased = max(frac, self._eased - 0.02)
-            elif self._alpha == 0:
-                self._eased = 0.0  # 退场完毕归零 (:1267-1269)
         vm = self._vm
         if vm is None or not vm.alive:
             bank = bank_of(_FRONT)
@@ -352,12 +336,40 @@ class BossBar:
                 if not vm.alive:
                     vm = None
             self._vm = vm
-            if present and vm is not None:
-                vm.pending_interrupt = 1  # 晚建档(数据迟到)补入场
+        if not in_dialog:
+            # Gui.cpp:1226-1269 状态机(滑入/出完成以框脚本 Stop 为准)
+            if present:
+                if self._state == 0:
+                    if vm is not None:
+                        vm.pending_interrupt = 1  # 滑入 (:1230)
+                    self._state = 1
+                    self._alpha = 0
+                else:
+                    if vm is None or vm.is_stopped:
+                        self._state = 2
+                    self._alpha = 255 if self._alpha >= 252 else self._alpha + 4
+            elif self._state != 0:
+                if self._state <= 2:
+                    if vm is not None:
+                        vm.pending_interrupt = 2  # 滑出 (:1254)
+                    self._state = 3
+                self._alpha = max(0, self._alpha - 4)
+                if vm is None or vm.is_stopped:
+                    self._state = 0
+                    self._eased = 0.0
+                    self._alpha = 0
+            if self._state >= 2 and present:
+                assert boss is not None
+                frac = max(0.0, min(1.0, boss.life / boss.max_life))
+                # 缓动: 涨 0.01/帧, 落 0.02/帧; 仅恒显/滑出态更新 (:1272-1291)
+                if frac > self._eased:
+                    self._eased = min(frac, self._eased + 0.01)
+                else:
+                    self._eased = max(frac, self._eased - 0.02)
         if vm is not None:
-            vm.execute()  # ExecuteScripts (Gui.cpp:1293)
-        if self._alpha <= 0 or in_dialog:
-            return
+            vm.execute()  # ExecuteScripts (Gui.cpp:1293, 对话门控外)
+        if in_dialog or (not present and self._state == 0):
+            return  # 绘制门 (:1835-1837 bossPresent+state>0)
         # 主条: 程序化渐变 quad (64,19)-(64+320*eased,23) (Gui.cpp:1838-1846)
         sprites.append(
             SpriteDraw(
