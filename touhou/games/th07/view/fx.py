@@ -8,7 +8,8 @@ SpellcardBegan→宣言横幅+魔法阵+符卡环 (EclManager.cpp:658-708),
 BombStarted→bomb 演出 (BombData.cpp 各 *Draw + Gui.cpp:343-362),
 MsgMusicChange→标题 BGM 行 (Gui.cpp:959-973), 收点/BONUS 弹字经
 world.frame_popups/frame_bonus_score 透出消费, 对话窗(立绘+底图+文字+介绍名)每帧
-采 world.msg_vm 透出状态 (Gui.cpp:848-898/1115-1185)。
+采 world.msg_vm 透出状态 (Gui.cpp:848-898/1115-1185), 结界环每帧采
+world.player.border 状态驱动 (Player.cpp:2125-2172)。
 
 无 anm 数据(archive None)时全层静默, 与快照的语义键兜底同理。
 """
@@ -31,7 +32,14 @@ from .bombfx import BombFx
 from .dialog import DialogBox, DialogPortraits
 from .effects import FxParticles
 from .popups import BonusBanners, ScorePopups, StageTitle, StatusBanner
-from .spellcard import _FACE_ANM, _SC_BG_VMS, MagicCircle, SpellcardBanner, SpellRing
+from .spellcard import (
+    _FACE_ANM,
+    _SC_BG_VMS,
+    BorderRing,
+    MagicCircle,
+    SpellcardBanner,
+    SpellRing,
+)
 
 
 class GameFx:
@@ -50,6 +58,7 @@ class GameFx:
         self.banner = SpellcardBanner(self._rng)
         self.circle = MagicCircle(self._rng)
         self.ring = SpellRing(self._rng)
+        self.border_ring = BorderRing(self._rng)
         self.popups = ScorePopups()
         self.status = StatusBanner()
         self.bonuses = BonusBanners()
@@ -164,6 +173,11 @@ class GameFx:
         sprites += self.circle.step()
         sprites += self.particles.step()
         sprites += self.ring.step(boss_pos)
+        sprites += self.border_ring.step(
+            w.player.border,
+            (w.player.pos.x, w.player.pos.y),
+            self._bank("etama.anm"),
+        )
         sp, tx = self.banner.step(w)
         sprites += sp
         texts += tx

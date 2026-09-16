@@ -64,6 +64,28 @@ def test_play_sounds_no_data_no_crash(backend: PygameBackend) -> None:
     backend.play_sounds([0, 5, 999])
 
 
+def test_additive_blend_premultiplies_alpha(backend: PygameBackend) -> None:
+    """blend=1 预乘: 透明 texel RGB 零贡献; color/全局 alpha 再折且不串缓存。"""
+    img = pygame.Surface((2, 2), pygame.SRCALPHA)
+    img.fill((200, 100, 50, 0))  # 透明但 RGB 脏(符卡环透明区实机形态)
+    img.set_at((0, 0), (200, 100, 50, 255))
+    img.set_at((1, 0), (200, 100, 50, 128))
+    out = backend._premul_add(img, (255, 255, 255), 255)
+    assert out.get_at((1, 1))[:3] == (0, 0, 0)  # 透明零贡献
+    assert out.get_at((0, 0))[:3] == (200, 100, 50)  # 不透明原样
+    assert out.get_at((1, 0))[0] == 100  # 200*128/255 ≈ 100
+    # 同图不同 color 缓存键不串味
+    out2 = backend._premul_add(img, (128, 128, 128), 255)
+    assert out2.get_at((0, 0))[:3] == (100, 50, 25)
+    out3 = backend._premul_add(img, (255, 255, 255), 128)
+    assert out3.get_at((0, 0))[0] == 100  # 全局 alpha 再折
+    assert backend._premul_add(img, (255, 255, 255), 255).get_at((0, 0))[:3] == (
+        200,
+        100,
+        50,
+    )
+
+
 def test_playfield_clip(backend: PygameBackend) -> None:
     """世界 sprite 裁进游戏区; 边框/面板贴图在快照 HUD 层, 后端不自绘边框。"""
     # 20x20 兜底块压在游戏区左上角: 区外一半必须被裁掉

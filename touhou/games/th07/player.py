@@ -59,6 +59,7 @@ class Border(msgspec.Struct):
     invulnerability_timer: int = 0
     border_timer: int = 0  # 激活时定格 540, cherryPlus 公式分母
     border_invulnerability_time: int = 0
+    last_break_natural: bool = False  # 上次破法(view 据此决定闪不闪环)
 
     def ready_border(self) -> None:
         """满樱信号 → READY(GameManager.cpp:928-931 → ActivateBorder 的延迟路径)。"""
@@ -72,6 +73,7 @@ class Border(msgspec.Struct):
         self.invulnerability_timer = BORDER_DURATION
         self.border_timer = BORDER_DURATION
         self.has_border = BorderState.ACTIVE
+        self.last_break_natural = False
         return True
 
     def tick(
@@ -110,6 +112,7 @@ class Border(msgspec.Struct):
         self.has_border = BorderState.NONE
         self.invulnerability_timer = BORDER_BREAK_INVULN
         self.border_invulnerability_time = BORDER_BREAK_INVULN
+        self.last_break_natural = True  # 自然破: 无闪环 (Player.cpp:2028-2031)
         return BorderBreakResult(
             cherry=cherry, cherry_max=cherry_max, cherry_plus=cherry_start, score=score
         )
@@ -123,6 +126,7 @@ class Border(msgspec.Struct):
         self.has_border = BorderState.NONE
         self.invulnerability_timer = BORDER_BREAK_INVULN
         self.border_invulnerability_time = BORDER_BREAK_INVULN
+        self.last_break_natural = False  # 灵击/主动/死亡破: 闪环 (Player.cpp:2158-2172)
 
     @property
     def active(self) -> bool:

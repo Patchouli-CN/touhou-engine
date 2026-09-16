@@ -6,9 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from touhou.engine import InputFrame, SceneSnapshot, SpriteDraw
+from touhou.engine import InputFrame, SceneSnapshot, SpriteDraw, open_archive
+from touhou.engine.anm import build_bank
 from touhou.engine.boss import SpellcardBegan
 from touhou.engine.enemies import EnemyDied
+from touhou.engine.rng import Rng
+from touhou.games.th07.player import Border
 from touhou.games.th07.snapshot import GAME_X, GAME_Y
 from touhou.games.th07.view import PygameBackend
 from touhou.games.th07.view import backend as backend_mod
@@ -21,8 +24,11 @@ from touhou.games.th07.view.popups import (
     StatusBanner,
 )
 from touhou.games.th07.view.shake import ScreenShake
+from touhou.games.th07.view.spellcard import BorderRing
+from touhou.schemas.anm import parse_anm
+from touhou.schemas.archive import load_entry
 
-from .conftest import needs_data
+from .conftest import DATA, needs_data
 
 
 def _stub_world(**kw) -> SimpleNamespace:
@@ -94,6 +100,56 @@ def test_fx_table_ground_truth_keys() -> None:
     assert FX_TABLE[4][0] == 0x2B3 - 0x200  # deathAnm2+4 默认
     assert FX_TABLE[25][0] == 0x2DA - 0x200  # 符卡环
     assert FX_TABLE[29][0] == 0x2B2 - 0x200  # 结界破裂樱点
+
+
+# ---- 结界环 (Player.cpp:2125-2172) ----
+def test_border_ring_silent_without_bank() -> None:
+    """无 anm 数据: 结界激活/破裂全程静默。"""
+    border = Border()
+    border.ready_border()
+    border.activate_border()
+    ring = BorderRing(Rng(0))
+    assert ring.step(border, (192.0, 400.0), None) == []
+    border.break_border()
+    assert ring.step(border, (192.0, 400.0), None) == []
+
+
+@needs_data
+def test_border_ring_lifecycle() -> None:
+    """真 etama: 激活出环(键 219)逐帧缩小; 灵击破闪 30 帧; 自然破即消; 可再激活。"""
+    bank = build_bank(
+        parse_anm(
+            load_entry(open_archive(DATA, format_name="pbg4"), "etama.anm"), version=2
+        ),
+        flat_layout=False,
+    )
+    border = Border()
+    border.ready_border()
+    border.activate_border()
+    ring = BorderRing(Rng(0))
+    pos = (192.0, 400.0)
+    out = ring.step(border, pos, bank)
+    assert out and out[0].image == "etama.anm:219"
+    assert out[0].z == 28.0
+    assert out[0].x == GAME_X + pos[0] and out[0].y == GAME_Y + pos[1]  # 跟随自机
+    scale0 = out[0].scale_x
+    for _ in range(200):
+        out = ring.step(border, pos, bank)
+        border.invulnerability_timer -= 1  # 模拟 sim 侧倒计时
+    assert out and out[0].scale_x < scale0  # 缩小中 (1.0→0.25)
+    # 灵击破 → 闪环 30 帧内消 (Player.cpp:2158-2172)
+    border.break_border()
+    out = ring.step(border, pos, bank)
+    assert out, "灵击破必须有闪环"
+    for _ in range(40):
+        out = ring.step(border, pos, bank)
+    assert out == [], "闪环 30 帧后必须消"
+    # 再激活 → 自然破: 直接消失无闪环 (Player.cpp:2028-2031)
+    border.ready_border()
+    border.activate_border()
+    assert ring.step(border, pos, bank), "再激活环应重现"
+    border.break_border_naturally(cherry=0, cherry_start=0, cherry_max=50000)
+    assert ring.step(border, pos, bank) == [], "自然破必须静默消失"
 
 
 # ---- 收点弹字 (AsciiManager::DrawPopups) ----

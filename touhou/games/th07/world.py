@@ -450,7 +450,10 @@ class Th07BorderSystem(System[Th07World]):
             if player.state == PlayerState.DEAD and player.respawn_timer != 0:
                 world._break_border()  # 死亡中结界保命 (ActivateBorder DEAD 分支)
             elif player.state == PlayerState.ALIVE:
-                border.activate_border()
+                if border.activate_border():
+                    # 结界激活音 (Player.cpp:2138-2139; 32=se_border 36=se_bonus2)
+                    world.frame_sounds.append(32)
+                    world.frame_sounds.append(36)
         plus, res = border.tick(
             cherry=g.cherry, cherry_start=g.cherry_start, cherry_max=g.cherry_max
         )

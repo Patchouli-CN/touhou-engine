@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import math
 
+import numpy as np
 import pygame
 
 from ....engine import Event, InputFrame, RenderBackend, SceneSnapshot
@@ -305,9 +306,9 @@ class PygameBackend(RenderBackend):
         sy = spr.scale * spr.scale_y
         img = self._transform(img, spr.rotation, sx, sy)
         if spr.blend_mode == 1:
-            # 加算: src.rgb 按 (color,alpha) 预乘后 BLEND_ADD
-            # (AnmManager.cpp:716-722: DESTBLEND=ONE)
-            img = self._tint(img, spr.color, spr.alpha)
+            # 加算: rgb 按 per-pixel alpha 预乘再 BLEND_ADD (透明 texel 零贡献;
+            # GameWindow.cpp:671 SRCBLEND=SRCALPHA + AnmManager.cpp:705-715 DESTBLEND=ONE)
+            img = self._premul_add(img, spr.color, spr.alpha)
             frame.blit(
                 img,
                 self._dest(img, spr.x + dx, spr.y + dy),
@@ -351,6 +352,28 @@ class PygameBackend(RenderBackend):
                 out = pygame.transform.rotozoom(out, -math.degrees(rotation), 1.0)
             if flip_x or flip_y:
                 out = pygame.transform.flip(out, flip_x, flip_y)
+            self._transforms[key] = out
+        return out
+
+    def _premul_add(
+        self, img: pygame.Surface, color: tuple[int, int, int], alpha: int
+    ) -> pygame.Surface:
+        """加算用预乘: rgb *= per-pixel alpha/255 × color × 全局 alpha(缓存)。"""
+        qa = 255 if alpha >= 248 else alpha & 0xF8
+        key = (id(img), color, qa, "premul")  # 与 _tint 键错开不串味
+        out = self._transforms.get(key)
+        if out is None:
+            if len(self._transforms) >= _TRANSFORM_CAP:
+                self._transforms.clear()
+            out = img.copy()
+            rgb = pygame.surfarray.pixels3d(out)
+            alpha_px = pygame.surfarray.pixels_alpha(out)
+            # 逐通道 rgb * a/255 * qa/255 * color/255 (uint32 防溢出)
+            mul = alpha_px.astype("uint32") * qa  # ≤ 255*255
+            tmp = rgb.astype("uint32") * mul[..., None]  # ≤ 255^3
+            tmp = tmp * np.array(color, dtype="uint32") // (255 * 255 * 255)
+            rgb[:] = tmp.astype("uint8")
+            del rgb, alpha_px  # 提前放锁
             self._transforms[key] = out
         return out
 

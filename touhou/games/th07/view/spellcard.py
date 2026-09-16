@@ -1,4 +1,4 @@
-"""boss 符卡宣言演出: Gui::ShowSpellcard 横幅 + Stage spellcardVms 魔法阵 + 符卡环。
+"""boss 符卡宣言演出 + 跟随角色的环效(符卡环/结界环)。
 
 - 横幅 (Gui.cpp:368-416 ShowSpellcard / :56-61 EndEnemySpellcard): 立绘 +
   左右装饰 cutin (face 链脚本, 自时序收场), 符卡名运动 VM (text.anm 脚本 5,
@@ -8,6 +8,8 @@
   画在实体之下(Stage draw prio 4)。黑罩淡入随 3D 背景单留待(现背景是纯色)。
 - 符卡环 (EclManager.cpp:700-708): etama 脚本(0x2da 空间)跟随 boss, scale
   插值到 1/8。
+- 结界环 (Player.cpp:2125-2136/2158-2172): etama 脚本 0x2db 跟随自机,
+  激活缩小/灵击破闪出/自然破直接撤。
 
 脚本坐标即窗口坐标, 不换算; sprite 键为链式全局 id 空间(build_bank
 flat_layout=False), C 全局 id - 装载基址 = 文件内键。
@@ -18,6 +20,7 @@ from __future__ import annotations
 from ....engine import SpriteDraw, TextDraw
 from ....engine.anm import AnmBank, AnmMachine
 from ....engine.rng import Rng
+from ..player import Border
 from ..snapshot import GAME_X, GAME_Y
 
 _FACE_ANM = ("face_rm00.anm", "face_mr00.anm", "face_sk00.anm")
@@ -49,6 +52,7 @@ _SC_BG_VMS: dict[int, tuple[tuple[str, tuple[int, ...]], ...]] = {
     8: (("eff08.anm", (0, 1)),),
 }
 _SCR_SPELL_RING = 0x2DA - 0x200  # etama 符卡环脚本 (AnmIdx.hpp:215)
+_SCR_BORDER_RING = 0x2DB - 0x200  # etama 结界环脚本 (Player.cpp:2125 特效 28)
 
 Z_CIRCLE = 5.0  # 魔法阵: 背景之上实体之下 (Stage draw prio 4 < Enemy 5)
 Z_RING = 28.0  # 符卡环: Effect 层 (draw prio 9)
@@ -192,6 +196,82 @@ class SpellRing:
             Z_RING,
         )
         return [spr] if spr is not None else []
+
+
+class BorderRing:
+    """结界环: 激活缩到 1/4, 灵击破 30 帧闪出, 自然破直接撤 (Player.cpp:2125-2172)。"""
+
+    _BREAK_FRAMES = 30  # 灵击破闪环时长 (Player.cpp:2161-2171)
+
+    def __init__(self, rng: Rng) -> None:
+        self._rng = rng
+        self._vm: AnmMachine | None = None
+        self._break_ticks = -1  # >=0 = 灵击破闪环播放中
+
+    def step(
+        self, border: Border, pos: tuple[float, float], bank: AnmBank | None
+    ) -> list[SpriteDraw]:
+        """每帧读结界状态驱动环 VM, 跟随自机 (Player.cpp:1947-1949)。"""
+        if border.active:
+            if self._vm is None or self._break_ticks >= 0:
+                self._begin(bank, border.invulnerability_timer)
+        elif self._vm is not None and self._break_ticks < 0:
+            if border.last_break_natural:
+                self._vm = None  # 自然破: 无闪环 (Player.cpp:2028-2031)
+            else:
+                self._begin_break()
+        vm = self._vm
+        if vm is None:
+            return []
+        vm.execute()
+        if not vm.alive:
+            self._vm = None
+            return []
+        if self._break_ticks >= 0:
+            self._break_ticks += 1
+            if self._break_ticks >= self._BREAK_FRAMES:
+                self._vm = None
+                return []
+        spr = _vm_sprite(
+            vm,
+            f"etama.anm:{vm.active_sprite_idx}",
+            GAME_X + pos[0],
+            GAME_Y + pos[1],
+            Z_RING,
+        )
+        return [spr] if spr is not None else []
+
+    def _begin(self, bank: AnmBank | None, remaining: int) -> None:
+        """ActivateBorder 生成 (Player.cpp:2125-2136): scale 1.0→0.25/剩余帧数。"""
+        self._vm = None
+        self._break_ticks = -1
+        if bank is None:
+            return
+        vm = AnmMachine(self._rng)
+        vm.start(bank.scripts.get(_SCR_BORDER_RING))
+        if not vm.alive:
+            return
+        vm.scale_initial = [1.0, 1.0]
+        vm.scale_final = [0.25, 0.25]
+        vm.scale_interp.restart(max(1, remaining), 0)
+        vm.angle_vel[2] *= -1.0  # Player.cpp:2135
+        vm.int_vars1[0] = max(1, remaining)  # 脚本 Wait 时长 (Player.cpp:2134)
+        self._vm = vm
+
+    def _begin_break(self) -> None:
+        """BreakBorder 重生成同脚本 (Player.cpp:2158-2172): 1/16→1.3 + alpha 渐出。"""
+        vm = self._vm
+        assert vm is not None
+        vm.start(vm.script)
+        vm.color[3] = 255  # spawn 色 0xffffffff, 盖过脚本帧首 SetAlpha(0)
+        vm.scale_initial = [1.0 / 16.0, 1.0 / 16.0]
+        vm.scale_final = [1.3, 1.3]
+        vm.scale_interp.restart(self._BREAK_FRAMES, 0)
+        vm.color_initial[3] = vm.color[3]
+        vm.color_final[3] = 0
+        vm.alpha_interp.restart(self._BREAK_FRAMES, 1)
+        vm.int_vars1[0] = self._BREAK_FRAMES  # Player.cpp:2171
+        self._break_ticks = 0
 
 
 class SpellcardBanner:
