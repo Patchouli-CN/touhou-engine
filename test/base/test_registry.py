@@ -13,6 +13,7 @@ from touhou.engine import (
     SaveSemantics,
     TouhouRegistry,
 )
+from touhou.engine.assembly import ENV_DATA_PATH
 from touhou.engine.core import World
 from touhou.schemas.archive import Archive, ArchiveFormat
 
@@ -102,6 +103,17 @@ def test_register_carries_save_semantics() -> None:
     """存档语义按作品登记, 不登记则落默认。"""
     _register(save=SaveSemantics(score_file="score.dat"))
     assert TouhouRegistry.create_game(_GAME).save.score_file == "score.dat"
+
+
+def test_create_game_env_overrides_data_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TOUHOU_DAT 环境变量覆盖登记默认资源包路径; 未设则照登记值。"""
+    monkeypatch.delenv(ENV_DATA_PATH, raising=False)
+    _register()
+    assert TouhouRegistry.create_game(_GAME).resources.data_path == "x.dat"
+    monkeypatch.setenv(ENV_DATA_PATH, "/elsewhere/th.dat")
+    assert TouhouRegistry.create_game(_GAME).resources.data_path == "/elsewhere/th.dat"
 
 
 def test_create_game_missing_pieces_raises() -> None:

@@ -17,6 +17,7 @@ from ..schemas.archive import (
     sniff_pbgz,
 )
 from ..schemas.exceptions import ArchiveFormatError
+from .assembly import ENV_DATA_PATH
 from .registry import TouhouRegistry
 
 # 框架自带的核心容器格式: schemas 出规格(纯函数), 这里登记到注册表。
@@ -41,7 +42,12 @@ def sniff_archive(data: bytes) -> str | None:
 def open_archive(path: str | Path, *, format_name: str | None = None) -> Archive:
     """打开资源包; 不指定格式时按文件头认, 认不出抛 ArchiveFormatError。"""
     p = Path(path)
-    data = p.read_bytes()
+    try:
+        data = p.read_bytes()
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"资源包不存在: {p} (设置环境变量 {ENV_DATA_PATH} 或传显式路径指定实际位置)"
+        ) from None
     if format_name is None:
         found = sniff_archive(data)
         if found is None:

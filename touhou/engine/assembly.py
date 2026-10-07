@@ -10,6 +10,9 @@ import msgspec
 from .core import World
 from .input import InputFrame
 
+#: 资源包路径覆盖环境变量: 解析顺序 = 显式参数 > 环境变量 > 作品登记默认
+ENV_DATA_PATH = "TOUHOU_DAT"
+
 
 class GameData(msgspec.Struct, frozen=True):
     """作品数值表/名单, 名单下标语义 = shotType/difficulty。"""

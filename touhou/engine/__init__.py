@@ -13,6 +13,7 @@ from .anm import (
 )
 from .archive import open_archive, sniff_archive
 from .assembly import (
+    ENV_DATA_PATH,
     GameAssembly,
     GameData,
     ResourcePaths,
@@ -255,6 +256,7 @@ __all__ = [
     "Event",
     "EventHandler",
     "EventStream",
+    "ENV_DATA_PATH",
     "FrameContext",
     "GameAssembly",
     "GameData",

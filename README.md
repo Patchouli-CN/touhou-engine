@@ -50,8 +50,17 @@ touhou07                              # 安装后的脚本入口亦可
 
 **游戏资源**：各作品使用对应原版数据（th07 为 `th07.dat`，BGM 用同目录
 `thbgm.dat` 自动推导），运行时解包，**仓库不分发任何二进制资源**。
-资源包路径在作品注册处登记（th07 见 `touhou/games/th07/compose.py` 的
-`DATA_PATH`）；要改路径，改登记值，或在 API 侧传 `data_path=` 覆盖。
+资源包路径解析顺序：**显式参数 > `TOUHOU_DAT` 环境变量 > 作品登记默认**
+（登记值见 `touhou/games/th07/compose.py` 的 `DATA_PATH`，是开发机路径）：
+
+```bash
+# Linux/macOS
+export TOUHOU_DAT=/path/to/th07.dat
+# Windows (cmd)
+set TOUHOU_DAT=D:\games\th07.dat
+```
+
+API 侧传 `data_path=` 也可覆盖（优先级最高）。
 
 ## 「API」像调用库一样玩东方
 

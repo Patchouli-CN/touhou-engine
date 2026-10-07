@@ -10,11 +10,15 @@ renderer 按后端名(正交维度); 表/路径/名单/参数走 register(game, 
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import TypeVar
 
+import msgspec
+
 from ..schemas.archive import ArchiveFormat
 from .assembly import (
+    ENV_DATA_PATH,
     GameAssembly,
     GameData,
     ResourcePaths,
@@ -167,7 +171,11 @@ class TouhouRegistry:
 
     @classmethod
     def create_game(cls, game: str) -> GameAssembly:
-        """组装并创建一个完整的作品(作品包由调用方 import, 登记在 import 时发生)。"""
+        """组装并创建一个完整的作品(作品包由调用方 import, 登记在 import 时发生)。
+
+        资源包路径解析: 显式参数(apis 层 data_path=) > TOUHOU_DAT 环境变量 >
+        作品登记默认; 本函数应用环境变量这一环。
+        """
         missing = [
             kind
             for kind, registry in (
@@ -183,11 +191,16 @@ class TouhouRegistry:
                 f"作品 {game!r} 未登记齐: 缺 {', '.join(missing)}"
                 f"(已登记: {', '.join(cls.registered_games())})"
             )
+        resources = cls._registry_resources[game]
+        env_data = os.environ.get(ENV_DATA_PATH)
+        if env_data:
+            # 环境变量全局覆盖登记默认(显式 data_path 参数在消费侧仍会再盖)
+            resources = msgspec.structs.replace(resources, data_path=env_data)
         assembly = GameAssembly(
             name=game,
             title=cls._registry_title[game],
             data=cls._registry_data[game],
-            resources=cls._registry_resources[game],
+            resources=resources,
             anm_version=cls._registry_anm_version[game],
             save=cls._registry_save.get(game, SaveSemantics()),
             world=cls._registry_world.get(game),

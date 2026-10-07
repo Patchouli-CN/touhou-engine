@@ -7,6 +7,7 @@ import struct
 import pytest
 
 from touhou.engine import open_archive, sniff_archive
+from touhou.engine.assembly import ENV_DATA_PATH
 from touhou.exceptions import ArchiveFormatError
 from touhou.schemas.archive import (
     load_entry,
@@ -228,3 +229,9 @@ def test_raw_entry_undecoded(tmp_path) -> None:
     payload = b"raw check"
     arc = parse_pbg4(_build_pbg4({"f": payload}))
     assert lzss_decompress(raw_entry(arc, "f"), len(payload)) == payload
+
+
+def test_open_archive_missing_file_reports_env_hint(tmp_path) -> None:
+    """资源包不存在时报清晰错误, 指向 TOUHOU_DAT 环境变量。"""
+    with pytest.raises(FileNotFoundError, match=ENV_DATA_PATH):
+        open_archive(tmp_path / "nope.dat")
